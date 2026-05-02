@@ -1,0 +1,40 @@
+{
+  "summary": "Validated new GET /api/investment-plan endpoint and InvestmentPlan UI component. 9/9 new pytest tests pass and all 20 regression tests (backend_test.py + test_discover.py) continue to pass (29/29 total). Playwright verified the Investment Plan section renders between DiscoveryFeed and Best Buy with 2 allocation cards (HCLTECH 55%/₹2,800 @ budget 5000, then HCLTECH 55%/₹5,500 + INFY 45%/₹4,500 @ budget 10000), plan-allocation-bar, plan-reason, plan-total, budget update via plan-budget-input + plan-apply-button, plan-refresh-button, and clicking an allocation card opens stock-detail-dialog.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "StockDetailDialog", "issues": ["Pre-existing recharts width(-1)/height(-1) transient console warnings on dialog mount; charts still render correctly. Carried over from iteration_1/2, not caused by this feature."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_investment_plan.py",
+    "/app/backend/tests/test_discover.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_investment_plan.xml",
+    "/app/test_reports/pytest/pytest_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.investment_plan re-scans the full 40-ticker MARKET_UNIVERSE on every call; for budget variations this is wasteful because scores don't change with budget. Consider extracting a cached 'scan_universe()' helper (reused by /discover and /investment-plan) so the second call returns instantly instead of re-running yfinance per-ticker.",
+    "Rounding algorithm puts the full residual on the last pick via 'max(0, last_a + diff)'. If 'diff' is deeply negative (e.g., last rounded up aggressively) this could zero out the last allocation and break the invariant sum==budget. Current test data never triggers this, but worth guarding with a small redistribution loop or asserting last_a + diff > 0.",
+    "Fallback branch looks up NIFTYBEES.NS from results via 'next(...)' — if NIFTYBEES.NS is temporarily unavailable (yfinance error), 'fallback_analysis' is None and 'estimated_shares' becomes None; UI shows '≈ —' which is fine, but maybe log a warning so it's debuggable.",
+    "Magic number 500 for min budget is inline; consider promoting to config.MIN_INVESTMENT_BUDGET for consistency with other tunables.",
+    "Budget param has no upper bound; a user could pass budget=10**12 and the allocation math still works but is meaningless. Consider a sane cap (e.g., 10_000_000) with a 400.",
+    "InvestmentPlan.jsx 'pendingBudget' string state allows empty string; 'Update' with empty input is guarded by parseInt NaN check — good. Minor: input lacks aria-label/htmlFor even though it has data-testid."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_investment_plan.py"
+  ],
+  "success_rate": {"backend": "100% (29/29 incl. 9 new)", "frontend": "100% (all investment-plan flows + no regressions)"},
+  "test_credentials": "none (no auth)",
+  "seed_data_creation": "None new. Regression test_add_custom_ticker transiently adds/removes HDFCBANK.NS as before.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New endpoint: GET /api/investment-plan?budget=<int> (min 500, default 5000) -> {budget, generated_at, allocations:[{ticker,name,amount,percent,score,signal_strength,price,estimated_shares,is_fallback}], total_allocated, reason, qualifying_count}. Picks top 1-2 of MARKET_UNIVERSE with score>=60, rounds to ₹100, residual absorbed by last. Fallback: single NIFTYBEES.NS allocation at 100% when qualifying_count==0 (with is_fallback=true). First uncached call scans 40 tickers (~15-30s); subsequent calls use Mongo price_cache. New UI testids: section-investment-plan, plan-budget-input, plan-apply-button, plan-refresh-button, plan-allocations, plan-allocation-<TICKER>, plan-allocation-bar, plan-reason, plan-total. The fallback branch was not triggered by live market data during this run (current qualifying_count=4), but is covered by a conditional pytest assertion and by code review; main agent may unit-test that branch with a mocked scan if stricter verification is needed.",
+  "rca_of_the_issue": "N/A - feature working as specified."
+}

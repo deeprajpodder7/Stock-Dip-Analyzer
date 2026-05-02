@@ -175,6 +175,96 @@ async def discover(top: int = DISCOVER_TOP_N, include_weak: bool = False):
     }
 
 
+@api.get("/investment-plan")
+async def investment_plan(budget: int = 5000):
+    """Generate a simple allocation plan for the given budget.
+
+    Rules:
+      - Scan market universe (same as /discover)
+      - Pick top 1-2 stocks with score >= 60
+      - Allocate proportionally to score (higher score = more money)
+      - Round to nearest ₹100, total must equal budget
+      - If no stock >= 60, fall back to full budget in NIFTYBEES.NS
+    """
+    if budget < 500:
+        raise HTTPException(400, "Budget must be at least ₹500")
+
+    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    candidates = []
+    for ticker, res in zip(MARKET_UNIVERSE, results):
+        if isinstance(res, Exception) or res.get("error"):
+            continue
+        if res.get("score", 0) >= 60:
+            candidates.append(res)
+
+    candidates.sort(key=lambda r: r.get("score", 0), reverse=True)
+    picks = candidates[:2]
+
+    allocations: list[dict] = []
+    reason: str
+
+    if not picks:
+        # Fallback: safe ETF
+        fallback_ticker = "NIFTYBEES.NS"
+        fallback_analysis = next(
+            (r for r, t in zip(results, MARKET_UNIVERSE)
+             if t == fallback_ticker and not isinstance(r, Exception) and not r.get("error")),
+            None,
+        )
+        price = fallback_analysis.get("price") if fallback_analysis else None
+        shares = int(budget // price) if price else None
+        allocations.append({
+            "ticker": fallback_ticker,
+            "name": fallback_ticker.replace(".NS", ""),
+            "amount": budget,
+            "percent": 100.0,
+            "score": fallback_analysis.get("score") if fallback_analysis else None,
+            "signal_strength": fallback_analysis.get("signal_strength") if fallback_analysis else "Weak",
+            "price": price,
+            "estimated_shares": shares,
+            "is_fallback": True,
+        })
+        reason = "No meaningful dip (score ≥ 60) in the scanned universe. Park the full ₹{:,} in NIFTYBEES (broad-market ETF) until stronger opportunities appear.".format(budget)
+    else:
+        total_score = sum(p["score"] for p in picks)
+        raw_alloc = [(p, budget * p["score"] / total_score) for p in picks]
+        # Round each to nearest ₹100, adjust last one to make total = budget
+        rounded = [(p, int(round(a / 100.0)) * 100) for p, a in raw_alloc]
+        diff = budget - sum(a for _, a in rounded)
+        if rounded:
+            last_p, last_a = rounded[-1]
+            rounded[-1] = (last_p, max(0, last_a + diff))
+        for p, amt in rounded:
+            price = p.get("price")
+            shares = int(amt // price) if price else None
+            allocations.append({
+                "ticker": p["ticker"],
+                "name": p["ticker"].replace(".NS", ""),
+                "amount": int(amt),
+                "percent": round(amt / budget * 100, 1),
+                "score": p["score"],
+                "signal_strength": p.get("signal_strength"),
+                "price": price,
+                "estimated_shares": shares,
+                "is_fallback": False,
+            })
+        if len(picks) == 1:
+            reason = f"Only 1 high-quality dip found (score ≥ 60). Concentrate the budget in {picks[0]['ticker'].replace('.NS','')}."
+        else:
+            reason = "Top 2 dip opportunities selected. Higher score gets a bigger allocation."
+
+    total_allocated = sum(a["amount"] for a in allocations)
+    return {
+        "budget": budget,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "allocations": allocations,
+        "total_allocated": total_allocated,
+        "reason": reason,
+        "qualifying_count": len(candidates),
+    }
+
+
 @api.get("/analyze")
 async def analyze():
     results = await analyze_all(db)

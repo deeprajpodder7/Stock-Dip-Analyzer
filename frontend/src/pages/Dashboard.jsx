@@ -10,6 +10,7 @@ import WatchlistManager from "@/components/WatchlistManager";
 import AnalysisTable from "@/components/AnalysisTable";
 import StockDetailDialog from "@/components/StockDetailDialog";
 import DiscoveryFeed from "@/components/DiscoveryFeed";
+import InvestmentPlan from "@/components/InvestmentPlan";
 
 import { getAnalyze, getWatchlist, refreshAll } from "@/lib/api";
 
@@ -69,6 +70,9 @@ export default function Dashboard() {
           onOpenDetail={(t) => setSelectedTicker(t)}
           onWatchlistChange={loadAll}
         />
+
+        {/* Investment Plan */}
+        <InvestmentPlan onOpenDetail={(t) => setSelectedTicker(t)} />
 
         {/* Best Buy (watchlist-based) */}
         <section data-testid="section-best-buy">
