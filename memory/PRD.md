@@ -35,6 +35,12 @@ Build a production-ready web app for long-term Indian stock investing that detec
 - Frontend: Dashboard with Header (scheduler/ntfy status), BestBuyCard, WatchlistManager (add/remove), AnalysisTable (color-coded), StockDetailDialog (price+MA + RSI Recharts)
 - Design: light "Organic/Earthy" theme, Outfit + IBM Plex Sans fonts, custom signal color chips
 
+### Update 2026-05-02 (feature: market discovery feed)
+- Added `MARKET_UNIVERSE` (~40 curated NSE tickers: Nifty 50 + ETFs) in `config.py`
+- New `GET /api/discover?top=N&include_weak=bool` — scans universe, returns top-scored opps sorted by score, uses the same 45-min cache
+- Home screen now shows **DiscoveryFeed** at the top (ranked cards with "Watch"/"In watchlist" action), above Best Buy + Watchlist + Analysis Table
+- UI includes "Show weak" toggle and per-card quick add-to-watchlist
+
 ## Env Vars (backend/.env)
 - `MONGO_URL`, `DB_NAME`
 - `NTFY_TOPIC=deepraj-stock-dip-9827`
