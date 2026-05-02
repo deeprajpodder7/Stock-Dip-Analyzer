@@ -175,6 +175,65 @@ async def discover(top: int = DISCOVER_TOP_N, include_weak: bool = False):
     }
 
 
+@api.get("/recommended-action")
+async def recommended_action():
+    """Simple, clear top-of-dashboard recommendation.
+
+    Logic:
+      - If any stock has score >= 70 → "Buy Now"
+      - Else if any stock has 60 <= score < 70 → "Accumulate Slowly"
+      - Else → "No good opportunities today"
+    Returns top 1-2 qualifying stocks.
+    """
+    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    valid = [
+        r for r in results
+        if not isinstance(r, Exception) and not r.get("error")
+    ]
+    valid.sort(key=lambda r: r.get("score", 0), reverse=True)
+
+    strong = [r for r in valid if r.get("score", 0) >= 70][:2]
+    medium = [r for r in valid if 60 <= r.get("score", 0) < 70][:2]
+
+    if strong:
+        action = "Buy Now"
+        tone = "strong"
+        picks = strong
+        message = "High-confidence dip detected — act today."
+    elif medium:
+        action = "Accumulate Slowly"
+        tone = "medium"
+        picks = medium
+        message = "Moderate dips — split your entry across a few days."
+    else:
+        action = "No good opportunities today"
+        tone = "weak"
+        picks = []
+        message = "Markets look steady. Stay patient, keep SIPs running."
+
+    slim_picks = [
+        {
+            "ticker": p["ticker"],
+            "name": p["ticker"].replace(".NS", ""),
+            "price": p.get("price"),
+            "drawdown_percent": p.get("drawdown_percent"),
+            "rsi": p.get("rsi"),
+            "score": p.get("score"),
+            "signal_strength": p.get("signal_strength"),
+        }
+        for p in picks
+    ]
+
+    return {
+        "action": action,
+        "tone": tone,
+        "message": message,
+        "picks": slim_picks,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @api.get("/investment-plan")
 async def investment_plan(budget: int = 5000):
     """Generate a simple allocation plan for the given budget.

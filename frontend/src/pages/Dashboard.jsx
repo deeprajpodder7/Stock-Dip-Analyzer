@@ -11,6 +11,7 @@ import AnalysisTable from "@/components/AnalysisTable";
 import StockDetailDialog from "@/components/StockDetailDialog";
 import DiscoveryFeed from "@/components/DiscoveryFeed";
 import InvestmentPlan from "@/components/InvestmentPlan";
+import RecommendedAction from "@/components/RecommendedAction";
 
 import { getAnalyze, getWatchlist, refreshAll } from "@/lib/api";
 
@@ -65,6 +66,9 @@ export default function Dashboard() {
       <Header lastUpdated={analyzeData?.generated_at} />
 
       <main className="mx-auto max-w-7xl w-full px-6 py-8 flex-1 flex flex-col gap-10">
+        {/* Recommended Action banner - top of page */}
+        <RecommendedAction onOpenDetail={(t) => setSelectedTicker(t)} />
+
         {/* Discovery feed - market scan hero */}
         <DiscoveryFeed
           onOpenDetail={(t) => setSelectedTicker(t)}

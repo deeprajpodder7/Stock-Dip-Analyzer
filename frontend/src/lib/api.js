@@ -18,6 +18,8 @@ export const removeTicker = (ticker) =>
 export const refreshAll = () => api.post("/refresh").then((r) => r.data);
 export const getInvestmentPlan = (budget = 5000) =>
   api.get("/investment-plan", { params: { budget } }).then((r) => r.data);
+export const getRecommendedAction = () =>
+  api.get("/recommended-action").then((r) => r.data);
 export const getStockDetail = (ticker) =>
   api.get(`/stock/${encodeURIComponent(ticker)}`).then((r) => r.data);
 export const getStatus = () => api.get("/status").then((r) => r.data);
