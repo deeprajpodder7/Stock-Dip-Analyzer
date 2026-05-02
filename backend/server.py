@@ -1,89 +1,261 @@
-from fastapi import FastAPI, APIRouter
+"""Stock Dip Analyzer - FastAPI backend."""
+from __future__ import annotations
+import os
+import logging
+import asyncio
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import List, Optional
+
+from fastapi import FastAPI, APIRouter, HTTPException
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
-from datetime import datetime, timezone
 
+from config import (
+    DEFAULT_TICKERS, MAX_CUSTOM_TICKERS, NTFY_TOPIC, NTFY_BASE,
+)
+from data import get_history, validate_ticker_symbol
+from scorer import analyze_dataframe
+from notifier import send_strong_dip_alert
+from scheduler import start_scheduler, shutdown_scheduler, get_status as get_scheduler_status
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger("stock_dip_analyzer")
+
+# --- MongoDB ---
+mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ["DB_NAME"]]
 
-# Create the main app without a prefix
-app = FastAPI()
-
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+# --- FastAPI ---
+app = FastAPI(title="Stock Dip Analyzer", version="1.0.0")
+api = APIRouter(prefix="/api")
 
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+class TickerAdd(BaseModel):
+    ticker: str = Field(..., min_length=1, max_length=30)
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
+async def get_watchlist() -> List[dict]:
+    """Return ordered list: defaults first then custom tickers."""
+    cursor = db.watchlist_custom.find({}, {"_id": 0}).sort("added_at", 1)
+    custom_docs = await cursor.to_list(length=MAX_CUSTOM_TICKERS + 5)
+    custom_tickers = [d["ticker"] for d in custom_docs]
+
+    out = [{"ticker": t, "is_default": True} for t in DEFAULT_TICKERS]
+    seen = set(DEFAULT_TICKERS)
+    for t in custom_tickers:
+        if t not in seen:
+            out.append({"ticker": t, "is_default": False})
+            seen.add(t)
+    return out
+
+
+async def _analyze_one(ticker: str) -> dict:
+    df = await get_history(db, ticker)
+    if df is None or df.empty:
+        return {
+            "ticker": ticker,
+            "error": "Data unavailable",
+            "score": 0,
+            "signal_strength": "Weak",
+            "recommendation": "Could not fetch data.",
+        }
+    return analyze_dataframe(ticker, df)
+
+
+async def analyze_all(db_arg=None) -> List[dict]:
+    wl = await get_watchlist()
+    tasks = [_analyze_one(item["ticker"]) for item in wl]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    out = []
+    for item, res in zip(wl, results):
+        if isinstance(res, Exception):
+            logger.warning(f"analyze error for {item['ticker']}: {res}")
+            out.append({
+                "ticker": item["ticker"],
+                "error": str(res),
+                "score": 0,
+                "signal_strength": "Weak",
+                "recommendation": "Analysis failed.",
+                "is_default": item["is_default"],
+            })
+        else:
+            res["is_default"] = item["is_default"]
+            out.append(res)
+    out.sort(key=lambda r: r.get("score", 0), reverse=True)
+    return out
+
+
+@api.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"service": "Stock Dip Analyzer", "status": "ok"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+@api.get("/watchlist")
+async def watchlist_get():
+    wl = await get_watchlist()
+    return {
+        "default_tickers": DEFAULT_TICKERS,
+        "max_custom": MAX_CUSTOM_TICKERS,
+        "tickers": wl,
+    }
 
-# Include the router in the main app
-app.include_router(api_router)
+
+@api.post("/watchlist")
+async def watchlist_add(payload: TickerAdd):
+    raw = payload.ticker.strip().upper()
+    if not raw:
+        raise HTTPException(400, "Ticker is required")
+    if not validate_ticker_symbol(raw):
+        raise HTTPException(400, "Invalid ticker format")
+    if raw in DEFAULT_TICKERS:
+        raise HTTPException(400, f"{raw} is already in the default watchlist")
+    existing = await db.watchlist_custom.find_one({"ticker": raw}, {"_id": 0})
+    if existing:
+        raise HTTPException(400, f"{raw} is already in your watchlist")
+    count = await db.watchlist_custom.count_documents({})
+    if count >= MAX_CUSTOM_TICKERS:
+        raise HTTPException(400, f"Maximum {MAX_CUSTOM_TICKERS} custom tickers allowed")
+    df = await get_history(db, raw)
+    if df is None or df.empty:
+        raise HTTPException(400, f"Could not fetch data for {raw}. Verify the ticker (use .NS for NSE).")
+    await db.watchlist_custom.insert_one({
+        "ticker": raw,
+        "added_at": datetime.now(timezone.utc).isoformat(),
+    })
+    wl = await get_watchlist()
+    return {"ok": True, "tickers": wl}
+
+
+@api.delete("/watchlist/{ticker}")
+async def watchlist_delete(ticker: str):
+    raw = ticker.strip().upper()
+    if raw in DEFAULT_TICKERS:
+        raise HTTPException(400, "Default tickers cannot be removed")
+    result = await db.watchlist_custom.delete_one({"ticker": raw})
+    if result.deleted_count == 0:
+        raise HTTPException(404, f"{raw} not found in custom watchlist")
+    wl = await get_watchlist()
+    return {"ok": True, "tickers": wl}
+
+
+@api.get("/analyze")
+async def analyze():
+    results = await analyze_all(db)
+    best = results[0] if results and results[0].get("score", 0) > 0 else None
+    strong_count = sum(1 for r in results if r.get("signal_strength") == "Strong")
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "results": results,
+        "best_buy_today": best,
+        "strong_count": strong_count,
+    }
+
+
+@api.get("/stock/{ticker}")
+async def stock_detail(ticker: str):
+    raw = ticker.strip().upper()
+    df = await get_history(db, raw)
+    if df is None or df.empty:
+        raise HTTPException(404, f"No data for {raw}")
+    analysis = analyze_dataframe(raw, df)
+    hist = []
+    for idx, row in df.iterrows():
+        hist.append({
+            "date": idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx),
+            "close": None if row["Close"] != row["Close"] else round(float(row["Close"]), 2),
+            "ma50": None if row["MA50"] != row["MA50"] else round(float(row["MA50"]), 2),
+            "ma200": None if row["MA200"] != row["MA200"] else round(float(row["MA200"]), 2),
+            "rsi": None if row["RSI"] != row["RSI"] else round(float(row["RSI"]), 2),
+        })
+    return {"analysis": analysis, "history": hist}
+
+
+@api.post("/refresh")
+async def refresh():
+    try:
+        await db.price_cache.delete_many({})
+    except Exception as e:
+        logger.warning(f"clear cache failed: {e}")
+    results = await analyze_all(db)
+    best = results[0] if results and results[0].get("score", 0) > 0 else None
+    return {
+        "ok": True,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "results": results,
+        "best_buy_today": best,
+    }
+
+
+@api.post("/test-notification")
+async def test_notification():
+    fake = {
+        "ticker": "TEST.NS",
+        "price": 100,
+        "drawdown_percent": -15.0,
+        "rsi": 28,
+        "score": 85,
+    }
+    ok = send_strong_dip_alert(fake)
+    return {"ok": ok, "topic": NTFY_TOPIC}
+
+
+@api.get("/status")
+async def status():
+    sched = get_scheduler_status()
+    return {
+        "scheduler": sched,
+        "notifier": {
+            "enabled": bool(NTFY_TOPIC),
+            "topic": NTFY_TOPIC,
+            "base": NTFY_BASE,
+        },
+        "watchlist_defaults": DEFAULT_TICKERS,
+        "max_custom": MAX_CUSTOM_TICKERS,
+    }
+
+
+@api.get("/alerts/today")
+async def alerts_today():
+    import pytz
+    from config import MARKET_TZ
+    tz = pytz.timezone(MARKET_TZ)
+    today_key = datetime.now(tz).strftime("%Y-%m-%d")
+    cursor = db.alert_log.find({"date": today_key}, {"_id": 0}).sort("timestamp", -1)
+    docs = await cursor.to_list(length=100)
+    return {"date": today_key, "alerts": docs}
+
+
+app.include_router(api)
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def on_startup():
+    logger.info("Starting Stock Dip Analyzer")
+    try:
+        start_scheduler(analyze_all, db)
+    except Exception as e:
+        logger.exception(f"scheduler start failed: {e}")
+
 
 @app.on_event("shutdown")
-async def shutdown_db_client():
+async def on_shutdown():
+    shutdown_scheduler()
     client.close()
