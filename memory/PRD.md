@@ -55,6 +55,16 @@ Build a production-ready web app for long-term Indian stock investing that detec
 - Top-of-dashboard banner with tone-coded background (terracotta/ochre/sage) and Top Pick cards; fallback message when no opps
 - Validated: 34/34 backend tests (5 new), zero regressions (iteration_4)
 
+### Update 2026-05-02 (strict signals + alert dedupe rules)
+- New `/app/backend/alerts.py` module: `passes_alert_rules()`, `send_alert_if_allowed()`, `ensure_alert_log_index()`, `today_ist_key()`
+- **Strict Buy rule**: `/api/recommended-action` requires score≥70 AND RSI≤40 for "Buy Now"; demotes score≥70+RSI>40 into "Accumulate"
+- Picks never include stocks with score < 60
+- **Alert dedupe**: one alert per ticker per IST date, enforced via unique Mongo index on `alert_log.(ticker, date)` created at startup
+- Scheduler now delegates entirely to `alerts.send_alert_if_allowed` (no legacy inline code path)
+- New `POST /api/trigger-alerts` — manual run, returns `{sent, deduped, rule_blocked, total_analyzed}`
+- `/api/alerts/today` stores `last_alerted_at` and sorts by it
+- Validated: 53/53 tests pass (iteration_6), zero regressions
+
 ## Env Vars (backend/.env)
 - `MONGO_URL`, `DB_NAME`
 - `NTFY_TOPIC=deepraj-stock-dip-9827`
