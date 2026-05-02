@@ -1,0 +1,103 @@
+{
+  "project_domain": "Finance, Investing, Dashboard",
+  "theme": "LIGHT",
+  "archetype": "Archetype 1 (Organic & Earthy) - chosen for trust and calm during market dips, keeping investors grounded.",
+  "color_palette": {
+    "css_variables": {
+      "--background": "60 20% 98%",
+      "--foreground": "200 15% 15%",
+      "--card": "0 0% 100%",
+      "--card-foreground": "200 15% 15%",
+      "--popover": "0 0% 100%",
+      "--popover-foreground": "200 15% 15%",
+      "--primary": "155 35% 25%",
+      "--primary-foreground": "0 0% 100%",
+      "--secondary": "40 20% 93%",
+      "--secondary-foreground": "200 15% 15%",
+      "--muted": "60 10% 93%",
+      "--muted-foreground": "200 10% 45%",
+      "--accent": "10 60% 45%",
+      "--accent-foreground": "0 0% 100%",
+      "--destructive": "0 84.2% 60.2%",
+      "--destructive-foreground": "0 0% 98%",
+      "--border": "60 10% 88%",
+      "--input": "60 10% 88%",
+      "--ring": "155 35% 25%",
+      "--radius": "0.5rem"
+    },
+    "custom_signals": {
+      "strong_dip": { 
+        "background": "#f9dbd5", 
+        "text": "#b33a20", 
+        "border": "#f4c6bd",
+        "description": "Terracotta/Red (Use for Strong Dips / High Scores 80-100. Represents bleeding market = BUY)" 
+      },
+      "medium_dip": { 
+        "background": "#fdf3cc", 
+        "text": "#a67c00", 
+        "border": "#f9e596",
+        "description": "Ochre/Yellow (Use for Medium Dips 50-80)" 
+      },
+      "weak_dip": { 
+        "background": "#d9f2e3", 
+        "text": "#337a54", 
+        "border": "#b8e6ca",
+        "description": "Sage Green (Use for Weak Dips 0-50)" 
+      }
+    }
+  },
+  "typography": {
+    "heading_font": "Outfit",
+    "body_font": "IBM Plex Sans",
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl tracking-tight font-semibold",
+      "h2": "text-2xl sm:text-3xl tracking-tight font-medium",
+      "h3": "text-xl sm:text-2xl font-medium",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-base leading-relaxed",
+      "small_labels": "text-xs tracking-[0.2em] uppercase font-medium"
+    },
+    "guidelines": "Do NOT use Inter or Roboto. Ensure numbers in tables use tabular-nums (e.g. font-variant-numeric: tabular-nums or tabular-nums Tailwind class) provided natively by IBM Plex Sans for perfect column alignment."
+  },
+  "layout_and_spacing": {
+    "strategy": "MODE B: THE 'CONTROL ROOM' GRID",
+    "base_grid": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4",
+    "gap": "gap-6",
+    "card_padding": "p-6 sm:p-8",
+    "surface_strategy": {
+      "dashboard_cards": "Flat solid background, 1px border-border, no shadow. On hover: -translate-y-1, shadow-lg transition-transform duration-200"
+    }
+  },
+  "components": {
+    "tables": "Shadcn UI Tables. Use left-align for text, right-align for metrics. Sticky header. Ensure generous row padding (py-4).",
+    "modals": "Shadcn UI Dialog. Use for per-stock detail (Price + MA chart, RSI chart). Must be wide enough for charts.",
+    "charts": "Recharts. No hovers required to understand gist. Line for Price/MA, Area for RSI. Use neutral gray axes.",
+    "buttons": "Shadcn UI Button. Use 'primary' (Deep Forest Green) sparingly for key actions like 'Add Ticker' or 'Refresh'.",
+    "badges": "Custom styled spans utilizing the custom_signals colors, with 1px borders.",
+    "status_indicators": "Small pulsing dot (green for active, red for error) in the header for Scheduler & ntfy notification status."
+  },
+  "motion_and_interaction": {
+    "hover_states": "All interactive elements must explicitly change color (e.g., hover:bg-primary/90).",
+    "focus_states": "Must have higher contrast (e.g., focus:ring-2 focus:ring-primary focus:ring-offset-2).",
+    "transitions": "Use specific properties: transition: transform 0.2s ease, opacity 0.2s ease."
+  },
+  "accessibility": {
+    "test_ids_required": true,
+    "test_id_convention": "kebab-case, role-based (e.g., data-testid='refresh-data-button', data-testid='stock-row-RELIANCE.NS', data-testid='add-ticker-input')",
+    "contrast": "Ensure APCA contrast > 4.5:1. Text on primary elements must be high contrast."
+  },
+  "media": {
+    "image_urls": [],
+    "notes": "Data-heavy application; rely on typography, layout, and color for visual hierarchy rather than imagery."
+  },
+  "instructions_to_main_agent": [
+    "1. OVERRIDE tailwind.config.js and src/index.css with the provided CSS variables.",
+    "2. SETUP Google Fonts 'Outfit' and 'IBM Plex Sans' in index.html.",
+    "3. HEADER: Build a top-level Header with solid background displaying 'Best Buy Today' ranking prominently. Add 'Scheduler & ntfy notification status' indicators here.",
+    "4. MAIN DASHBOARD: Implement the Watchlist Table in a Card spanning full width. Table headers: Ticker, Price, Prev Price, Drawdown %, RSI, Score, Signal Strength.",
+    "5. SIGNAL COLORS: Apply conditional custom_signals styling to the 'Signal Strength' column (Weak=green, Medium=yellow, Strong=red).",
+    "6. CHARTS: For the detail modal, embed Recharts (Price with MA50/MA200 overlay, RSI chart).",
+    "7. TESTING: Add 'data-testid' to every button, form input, and table row for automated testing.",
+    "8. UX: Implement a manual refresh/analyze button that triggers the Fast API backend data pipeline."
+  ]
+}
