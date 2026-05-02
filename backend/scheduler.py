@@ -40,34 +40,20 @@ def _is_market_hours_now() -> bool:
 
 
 async def _run_analysis_job(analyze_func, db):
-    """Internal wrapper that runs analysis and dispatches alerts with dedupe."""
+    """Internal wrapper that runs analysis and dispatches alerts via alerts.send_alert_if_allowed
+    (which enforces the strict score>=70 + RSI<=40 rule AND per-ticker-per-day dedupe)."""
     try:
         tz = pytz.timezone(MARKET_TZ)
         now_ist = datetime.now(tz)
         logger.info(f"[scheduler] running analysis at {now_ist.isoformat()}")
         results = await analyze_func(db)
-        today_key = now_ist.strftime("%Y-%m-%d")
         alerts_sent = []
         for r in results:
-            if r.get("signal_strength") == "Strong" and r.get("score", 0) >= 70:
-                ticker = r["ticker"]
-                # Dedupe via mongo collection alert_log
-                existing = await db.alert_log.find_one(
-                    {"ticker": ticker, "date": today_key}, {"_id": 0}
-                )
-                if existing:
-                    logger.info(f"[scheduler] dedupe: already alerted {ticker} today")
-                    continue
-                ok = send_strong_dip_alert(r)
-                await db.alert_log.insert_one({
-                    "ticker": ticker,
-                    "date": today_key,
-                    "score": r.get("score"),
-                    "sent": bool(ok),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                })
-                if ok:
-                    alerts_sent.append(ticker)
+            outcome = await send_alert_if_allowed(db, r)
+            if outcome["status"] == "sent":
+                alerts_sent.append(outcome["ticker"])
+            elif outcome["status"] == "deduped":
+                logger.info(f"[scheduler] dedupe: already alerted {outcome['ticker']} today")
         _status["last_run"] = datetime.now(timezone.utc).isoformat()
         _status["last_run_ist"] = now_ist.isoformat()
         _status["last_alerts"] = alerts_sent

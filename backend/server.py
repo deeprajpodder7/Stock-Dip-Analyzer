@@ -440,7 +440,7 @@ async def alerts_today():
     from config import MARKET_TZ
     tz = pytz.timezone(MARKET_TZ)
     today_key = datetime.now(tz).strftime("%Y-%m-%d")
-    cursor = db.alert_log.find({"date": today_key}, {"_id": 0}).sort("timestamp", -1)
+    cursor = db.alert_log.find({"date": today_key}, {"_id": 0}).sort("last_alerted_at", -1)
     docs = await cursor.to_list(length=100)
     return {"date": today_key, "alerts": docs}
 

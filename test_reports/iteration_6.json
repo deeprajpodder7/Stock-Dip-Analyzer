@@ -1,0 +1,38 @@
+{
+  "summary": "Re-tested both iteration_5 action items. (1) scheduler._run_analysis_job now fully delegates to alerts.send_alert_if_allowed — verified by static check (no `send_strong_dip_alert` reference in scheduler.py) AND functional test invoking the private async function with mocked + real alerts gate. NO NameError, sent tickers correctly populate _status['last_alerts'], rule_blocked/deduped tickers correctly excluded. (2) /api/alerts/today now sorts by 'last_alerted_at' (the field alerts.send_alert_if_allowed writes). Added 6 new scheduler tests (test_scheduler.py). Full regression: 53 passed, 2 skipped (live-data dependent), 0 failed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_scheduler.py",
+    "/app/backend/tests/test_alerts.py",
+    "/app/backend/tests/test_recommended_action.py",
+    "/app/backend/tests/test_discover.py",
+    "/app/backend/tests/test_investment_plan.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_iter6_full.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Verified: scheduler.py is now clean. Imports `from alerts import send_alert_if_allowed`, and _run_analysis_job loops `outcome = await send_alert_if_allowed(db, r); if outcome['status']=='sent': alerts_sent.append(...)`. The legacy inline dedupe block + undefined send_strong_dip_alert call is GONE.",
+    "Verified: server.py /api/alerts/today now uses `.sort(\"last_alerted_at\", -1)` — matches the field written by alerts.send_alert_if_allowed.",
+    "Carry-forward (non-blocking, from iteration_5): /api/recommended-action, /api/discover, /api/investment-plan each independently scan MARKET_UNIVERSE on every request — the Dashboard fires all three in parallel on mount, executing the same 40-ticker scan 3x. Consider a short-TTL cached helper scan_universe(). Not a regression; not in this iteration's scope.",
+    "Carry-forward (non-blocking): alerts.passes_alert_rules score comparison is not type-coerced — defensive isinstance(score, (int,float)) guard would harden against future scorer changes."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_scheduler.py (new)"
+  ],
+  "success_rate": {"backend": "100% (53/53 pytest; 2 conditional skips for live-data-dependent branches: 'no opportunities today' fallback and 'demote strong to accumulate' branch — both require live RSI states that don't currently occur on the watchlist)", "frontend": "not tested (testing_type=backend only)"},
+  "test_credentials": "none (no auth)",
+  "seed_data_creation": "test_run_analysis_job_routes_through_send_alert_if_allowed uses an in-memory mock of send_alert_if_allowed (no DB writes). test_run_analysis_job_with_real_send_alert_if_allowed_does_not_nameerror passes only rule_blocked rows so alerts gate exits before any DB access. test_alerts.py continues to populate alert_log via /api/trigger-alerts (currently rule_blocks all live watchlist tickers, so alert_log stays clean).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration_5 critical bug (scheduler NameError) and minor bug (/api/alerts/today sort key) are both FIXED and verified. New regression file: /app/backend/tests/test_scheduler.py — keep it. Strict alert rule (score>=70 AND RSI<=40 AND signal=='Strong') is enforced consistently in: alerts.passes_alert_rules, alerts.send_alert_if_allowed, /api/trigger-alerts, /api/recommended-action (Buy Now), AND scheduler._run_analysis_job (via delegation). /api/alerts/today writes match reads (last_alerted_at). Mongo unique compound index on alert_log (ticker,date) confirmed. Live watchlist (5 stocks) currently rule_blocks all tickers so /api/trigger-alerts.sent is empty — this is expected, not a bug. To run tests locally: `export REACT_APP_BACKEND_URL=https://value-signal-1.preview.emergentagent.com && pytest backend/tests/ -v`.",
+  "rca_of_the_issue": "Iteration_5 RCA was correct: scheduler.py had a leftover inline dedupe block calling undefined send_strong_dip_alert. E1 fixed it by replacing the entire block (lines 49-70 in old file) with the 4-line delegating loop. Confirmed by reading current scheduler.py (lines 49-56) and by static scan that ensures the symbol 'send_strong_dip_alert' no longer appears anywhere in scheduler.py. Functional test invoking _run_analysis_job with both mocked and real alerts gate passes — no NameError under any path."
+}
