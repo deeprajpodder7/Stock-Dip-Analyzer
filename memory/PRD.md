@@ -50,6 +50,11 @@ Build a production-ready web app for long-term Indian stock investing that detec
 - Home screen `InvestmentPlan` section with visual allocation bar, per-stock cards (amount, %, score, shares, signal), budget input, clickable cards open detail dialog
 - Validated: 29/29 backend tests (9 new), full frontend flows (iteration_3)
 
+### Update 2026-05-02 (feature: Recommended Action)
+- New `GET /api/recommended-action` — simple tri-state decision: score>=70 → "Buy Now", 60-69 → "Accumulate Slowly", else → "No good opportunities today"; returns top 1-2 picks
+- Top-of-dashboard banner with tone-coded background (terracotta/ochre/sage) and Top Pick cards; fallback message when no opps
+- Validated: 34/34 backend tests (5 new), zero regressions (iteration_4)
+
 ## Env Vars (backend/.env)
 - `MONGO_URL`, `DB_NAME`
 - `NTFY_TOPIC=deepraj-stock-dip-9827`
