@@ -20,6 +20,7 @@ from config import (
 from data import get_history, validate_ticker_symbol
 from scorer import analyze_dataframe
 from notifier import send_strong_dip_alert
+from alerts import send_alert_if_allowed, ensure_alert_log_index, passes_alert_rules
 from scheduler import start_scheduler, shutdown_scheduler, get_status as get_scheduler_status
 
 ROOT_DIR = Path(__file__).parent
@@ -179,10 +180,11 @@ async def discover(top: int = DISCOVER_TOP_N, include_weak: bool = False):
 async def recommended_action():
     """Simple, clear top-of-dashboard recommendation.
 
-    Logic:
-      - If any stock has score >= 70 → "Buy Now"
-      - Else if any stock has 60 <= score < 70 → "Accumulate Slowly"
-      - Else → "No good opportunities today"
+    Strict, low-noise rules:
+      - "Buy Now": score >= 70 AND RSI <= 40 (oversold confirmation required)
+      - "Accumulate Slowly": 60 <= score < 70  (OR score >= 70 but RSI > 40 → demoted)
+      - "No good opportunities today": otherwise
+      - Picks NEVER include stocks with score < 60.
     Returns top 1-2 qualifying stocks.
     """
     tasks = [_analyze_one(t) for t in MARKET_UNIVERSE]
@@ -193,18 +195,29 @@ async def recommended_action():
     ]
     valid.sort(key=lambda r: r.get("score", 0), reverse=True)
 
-    strong = [r for r in valid if r.get("score", 0) >= 70][:2]
-    medium = [r for r in valid if 60 <= r.get("score", 0) < 70][:2]
+    # Rule: "Buy" requires score>=70 AND RSI<=40
+    buy_candidates = [
+        r for r in valid
+        if r.get("score", 0) >= 70 and (r.get("rsi") is not None and r["rsi"] <= 40)
+    ][:2]
 
-    if strong:
+    # Accumulate: 60-70 range + any score>=70 with RSI>40 (demoted because not confirmed oversold)
+    accumulate_pool = (
+        [r for r in valid if 60 <= r.get("score", 0) < 70]
+        + [r for r in valid if r.get("score", 0) >= 70 and (r.get("rsi") is None or r["rsi"] > 40)]
+    )
+    accumulate_pool.sort(key=lambda r: r.get("score", 0), reverse=True)
+    accumulate_candidates = accumulate_pool[:2]
+
+    if buy_candidates:
         action = "Buy Now"
         tone = "strong"
-        picks = strong
-        message = "High-confidence dip detected — act today."
-    elif medium:
+        picks = buy_candidates
+        message = "High-confidence dip detected (score ≥ 70 and RSI ≤ 40) — act today."
+    elif accumulate_candidates:
         action = "Accumulate Slowly"
         tone = "medium"
-        picks = medium
+        picks = accumulate_candidates
         message = "Moderate dips — split your entry across a few days."
     else:
         action = "No good opportunities today"
@@ -400,6 +413,27 @@ async def status():
     }
 
 
+@api.post("/trigger-alerts")
+async def trigger_alerts():
+    """Manually run an analysis pass and send any qualifying alerts (respecting daily dedupe
+    and the strict rule: score>=70 AND RSI<=40). Never raises — always returns a summary."""
+    results = await analyze_all(db)
+    outcomes = []
+    for r in results:
+        outcome = await send_alert_if_allowed(db, r)
+        outcomes.append(outcome)
+    sent = [o for o in outcomes if o["status"] == "sent"]
+    deduped = [o for o in outcomes if o["status"] == "deduped"]
+    blocked = [o for o in outcomes if o["status"] == "rule_blocked"]
+    return {
+        "ok": True,
+        "sent": [o["ticker"] for o in sent],
+        "deduped": [o["ticker"] for o in deduped],
+        "rule_blocked": [o["ticker"] for o in blocked],
+        "total_analyzed": len(results),
+    }
+
+
 @api.get("/alerts/today")
 async def alerts_today():
     import pytz
@@ -425,6 +459,10 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     logger.info("Starting Stock Dip Analyzer")
+    try:
+        await ensure_alert_log_index(db)
+    except Exception as e:
+        logger.warning(f"alert_log index setup failed: {e}")
     try:
         start_scheduler(analyze_all, db)
     except Exception as e:

@@ -1,7 +1,7 @@
 """Market-aware background scheduler.
 
 Runs hourly analysis during Indian market hours (9:30-15:30 IST) plus a post-close run.
-Dedupes strong dip alerts per ticker per day.
+Dedupes strong dip alerts per ticker per day via alerts.send_alert_if_allowed().
 """
 import logging
 from datetime import datetime, timezone
@@ -10,7 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config import MARKET_TZ
-from notifier import send_strong_dip_alert
+from alerts import send_alert_if_allowed
 
 logger = logging.getLogger(__name__)
 

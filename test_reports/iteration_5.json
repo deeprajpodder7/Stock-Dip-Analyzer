@@ -1,0 +1,50 @@
+{
+  "summary": "Validated strict alert rules (score>=70 AND RSI<=40), /api/recommended-action demote logic, new POST /api/trigger-alerts with dedupe, /api/alerts/today shape, and alerts.py unit behaviour. 18/18 new tests pass (+2 skipped because live market data does not trigger those specific branches). 29/29 regression tests still pass. Frontend renders Buy Now banner + HCLTECH pick (score=80 RSI=28.6) with message mentioning 'score \u2265 70 and RSI \u2264 40'. HOWEVER: /app/backend/scheduler.py contains a latent runtime bug \u2014 _run_analysis_job still uses the OLD inline dedupe code and calls send_strong_dip_alert() which is NOT imported (only send_alert_if_allowed is imported). This contradicts the review request ('_run_analysis_job now delegates to send_alert_if_allowed') and will NameError at the next cron firing during market hours.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "scheduler._run_analysis_job", "issue": "NameError at runtime: calls send_strong_dip_alert(r) at line 61 but only send_alert_if_allowed is imported at line 13. Review request specified this function should delegate to send_alert_if_allowed but the in-line legacy dedupe+send code was left in place. It will crash the scheduled cron job during market hours (10:00/11:00/.../15:00 IST and 15:45). The job is wrapped in a try/except so backend won't crash, but zero alerts will ever be dispatched via the scheduler \u2014 only manual /api/trigger-alerts works.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "/api/alerts/today", "issue": "Sorts by 'timestamp' (.sort('timestamp', -1)) but alerts.send_alert_if_allowed writes the field as 'last_alerted_at', not 'timestamp'. Sort becomes a no-op for alerts written via the new helper \u2014 ordering may be arbitrary. Only the legacy scheduler path writes 'timestamp'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_alerts.py",
+    "/app/backend/tests/test_recommended_action.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_discover.py",
+    "/app/backend/tests/test_investment_plan.py",
+    "/app/test_reports/pytest/pytest_iter5_new.xml",
+    "/app/test_reports/pytest/pytest_iter5_regression.xml"
+  ],
+  "action_items": [
+    "FIX scheduler.py: replace the manual 'existing = await db.alert_log.find_one(...); send_strong_dip_alert(r); insert_one(...)' block in _run_analysis_job with 'outcome = await send_alert_if_allowed(db, r); if outcome[\"status\"] == \"sent\": alerts_sent.append(outcome[\"ticker\"])'. This matches the review request and prevents NameError.",
+    "OR import send_strong_dip_alert in scheduler.py AND gate the call with passes_alert_rules() so the strict rule is honoured (currently the scheduler bypasses the RSI<=40 gate \u2014 it only checks score>=70, violating Rule #1).",
+    "Align /api/alerts/today sort key with the field written by alerts.send_alert_if_allowed (use 'last_alerted_at' or add both fields for backward compat).",
+    "Optional: add a unit test that mocks _analyze_one to exercise the 'demote strong with RSI>40 to Accumulate' branch and the 'No good opportunities today' branch, since live data rarely triggers them."
+  ],
+  "critical_code_review_comments": [
+    "CRITICAL: scheduler.py line 61 references undefined symbol send_strong_dip_alert \u2014 not imported. Review request explicitly stated scheduler now delegates to send_alert_if_allowed, but the code wasn't actually updated. The try/except in _run_analysis_job will swallow the NameError, so scheduled alerts will silently stop working.",
+    "scheduler._run_analysis_job dedupe check uses score>=70 only (no RSI<=40 gate) \u2014 inconsistent with the new strict rule implemented in alerts.passes_alert_rules. Whether fixed via delegate-refactor (preferred) or by adding passes_alert_rules() call, the scheduler path must enforce the same strict rule as /api/trigger-alerts.",
+    "alerts.send_alert_if_allowed writes 'last_alerted_at' (ISO string). alerts_today endpoint sorts by 'timestamp' (field that only legacy scheduler writes). Choose one field name across both writers, or sort by 'last_alerted_at'.",
+    "/api/recommended-action, /api/discover, /api/investment-plan all independently scan MARKET_UNIVERSE on every request. With 3 endpoints the Dashboard fires in parallel on mount, the same 40-ticker scan is executed 3x. Consider a short-TTL cached helper scan_universe() shared across the three endpoints.",
+    "alerts.passes_alert_rules: score default is 0 if missing; rsi None => False. Correct. Edge: score type not coerced \u2014 if Pydantic/scorer ever yields a string, the '< 70' comparison would raise. Low-risk, but add isinstance guard for defensive coding.",
+    "Unique index ensure_alert_log_index confirmed present in Mongo (verified by test_alert_log_has_unique_index) \u2014 good."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_recommended_action.py",
+    "/app/backend/tests/test_alerts.py"
+  ],
+  "success_rate": {"backend": "100% (47/47 pytest; 2 conditional skips for live-data-dependent branches)", "frontend": "100% (Recommended Action UI renders correctly with Buy Now banner + HCLTECH pick + strict-criteria message)"},
+  "test_credentials": "none (no auth)",
+  "seed_data_creation": "Dedupe test inserted + relied on alert_log rows for current IST date; verified Mongo alert_log is empty after the run because with the current watchlist (NIFTYBEES, BANKBEES, RELIANCE, TCS, INFY) every ticker is currently rule_blocked (none have score>=70+RSI<=40+Strong). test_add_custom_ticker transiently adds/removes HDFCBANK.NS as before.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New endpoints to know: POST /api/trigger-alerts -> {ok, sent[], deduped[], rule_blocked[], total_analyzed}; returns tickers only, never raises. GET /api/alerts/today -> {date, alerts[{ticker,date,score,rsi,sent,last_alerted_at}]}. alerts.passes_alert_rules(analysis)=True iff signal=='Strong' AND score>=70 AND rsi<=40 (rsi=None=>False). /api/recommended-action now requires score>=70 AND RSI<=40 for Buy Now; stocks with score>=70 but RSI>40 are demoted into the Accumulate pool. Message for Buy Now branch contains '70' and '40'. Mongo unique compound index (ticker,date) on alert_log is confirmed created on startup. KNOWN OPEN BUG: scheduler.py _run_analysis_job still uses legacy inline dedupe and calls send_strong_dip_alert which isn't imported \u2014 scheduled cron job will NameError (silently caught). Live watchlist is small (5 stocks) so /api/trigger-alerts currently rule_blocks all 5 \u2014 dedupe list typically empty on live data. Frontend RecommendedAction UI did not change and continues to render {action,tone,message,picks[]} correctly.",
+  "rca_of_the_issue": "scheduler.py was not refactored as stated in the review request. E1 appears to have added `from alerts import send_alert_if_allowed` to the imports of scheduler.py but forgot to replace the legacy code block in _run_analysis_job (lines 50-70). Result: send_strong_dip_alert becomes an undefined name at runtime, and the new strict RSI<=40 rule is bypassed in the scheduler path. FIX: Replace lines 49-70 with `outcome = await send_alert_if_allowed(db, r); if outcome['status']=='sent': alerts_sent.append(outcome['ticker'])`. No other changes needed \u2014 alerts.py already owns dedupe + strict rule + index."
+}
