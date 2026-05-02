@@ -9,6 +9,7 @@ import BestBuyCard from "@/components/BestBuyCard";
 import WatchlistManager from "@/components/WatchlistManager";
 import AnalysisTable from "@/components/AnalysisTable";
 import StockDetailDialog from "@/components/StockDetailDialog";
+import DiscoveryFeed from "@/components/DiscoveryFeed";
 
 import { getAnalyze, getWatchlist, refreshAll } from "@/lib/api";
 
@@ -62,9 +63,20 @@ export default function Dashboard() {
     <div className="min-h-screen flex flex-col">
       <Header lastUpdated={analyzeData?.generated_at} />
 
-      <main className="mx-auto max-w-7xl w-full px-6 py-8 flex-1 flex flex-col gap-8">
-        {/* Best Buy hero */}
+      <main className="mx-auto max-w-7xl w-full px-6 py-8 flex-1 flex flex-col gap-10">
+        {/* Discovery feed - market scan hero */}
+        <DiscoveryFeed
+          onOpenDetail={(t) => setSelectedTicker(t)}
+          onWatchlistChange={loadAll}
+        />
+
+        {/* Best Buy (watchlist-based) */}
         <section data-testid="section-best-buy">
+          <div className="flex items-baseline justify-between mb-3">
+            <h2 className="text-lg font-medium" style={{ fontFamily: "Outfit" }}>
+              Your Watchlist · Best Buy
+            </h2>
+          </div>
           {loading ? (
             <Card className="p-8 border border-border">
               <div className="text-sm text-muted-foreground uppercase tracking-[0.2em]">Analyzing watchlist…</div>

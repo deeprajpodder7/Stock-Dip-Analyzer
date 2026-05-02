@@ -10,6 +10,24 @@ load_dotenv(ROOT_DIR / ".env")
 DEFAULT_TICKERS = ["NIFTYBEES.NS", "BANKBEES.NS", "RELIANCE.NS", "TCS.NS", "INFY.NS"]
 MAX_CUSTOM_TICKERS = 10
 
+# Market universe for "Top Dip Opportunities" discovery feed.
+# Curated list of liquid NSE stocks + popular ETFs — good long-term candidates.
+MARKET_UNIVERSE = [
+    # Broad-market & sector ETFs
+    "NIFTYBEES.NS", "BANKBEES.NS", "JUNIORBEES.NS", "ITBEES.NS",
+    "CPSEETF.NS", "GOLDBEES.NS",
+    # Nifty 50 large caps across sectors
+    "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS",
+    "SBIN.NS", "AXISBANK.NS", "KOTAKBANK.NS", "ITC.NS", "HINDUNILVR.NS",
+    "LT.NS", "BHARTIARTL.NS", "HCLTECH.NS", "WIPRO.NS", "TECHM.NS",
+    "ASIANPAINT.NS", "MARUTI.NS", "M&M.NS", "TATAMOTORS.NS", "TATASTEEL.NS",
+    "SUNPHARMA.NS", "DRREDDY.NS", "CIPLA.NS", "NESTLEIND.NS", "BAJFINANCE.NS",
+    "BAJAJFINSV.NS", "ULTRACEMCO.NS", "GRASIM.NS", "POWERGRID.NS", "NTPC.NS",
+    "ONGC.NS", "COALINDIA.NS", "JSWSTEEL.NS", "TITAN.NS",
+]
+# Max results on discovery feed
+DISCOVER_TOP_N = int(os.environ.get("DISCOVER_TOP_N", "12"))
+
 # ntfy
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "deepraj-stock-dip-9827")
 NTFY_BASE = os.environ.get("NTFY_BASE", "https://ntfy.sh")

@@ -15,6 +15,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 from config import (
     DEFAULT_TICKERS, MAX_CUSTOM_TICKERS, NTFY_TOPIC, NTFY_BASE,
+    MARKET_UNIVERSE, DISCOVER_TOP_N,
 )
 from data import get_history, validate_ticker_symbol
 from scorer import analyze_dataframe
@@ -146,6 +147,32 @@ async def watchlist_delete(ticker: str):
         raise HTTPException(404, f"{raw} not found in custom watchlist")
     wl = await get_watchlist()
     return {"ok": True, "tickers": wl}
+
+
+@api.get("/discover")
+async def discover(top: int = DISCOVER_TOP_N, include_weak: bool = False):
+    """Scan the curated market universe and return the best-scored dip opportunities.
+    Results are cached via the same yfinance+Mongo cache used by /analyze."""
+    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    out = []
+    custom = {d["ticker"] async for d in db.watchlist_custom.find({}, {"_id": 0, "ticker": 1})}
+    for ticker, res in zip(MARKET_UNIVERSE, results):
+        if isinstance(res, Exception) or res.get("error"):
+            continue
+        res["in_watchlist"] = (ticker in DEFAULT_TICKERS) or (ticker in custom)
+        res["is_default"] = ticker in DEFAULT_TICKERS
+        out.append(res)
+    out.sort(key=lambda r: r.get("score", 0), reverse=True)
+    if not include_weak:
+        # Only show Medium and Strong by default on discovery
+        out = [r for r in out if r.get("signal_strength") in ("Medium", "Strong")]
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "universe_size": len(MARKET_UNIVERSE),
+        "results": out[: max(1, top)],
+        "strong_count": sum(1 for r in out if r.get("signal_strength") == "Strong"),
+    }
 
 
 @api.get("/analyze")
