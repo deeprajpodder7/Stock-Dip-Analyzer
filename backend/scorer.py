@@ -99,6 +99,56 @@ def recommendation(signal: str, score: float) -> str:
     return "No meaningful dip - wait for better opportunity."
 
 
+def conclusion(signal: str, score: float) -> str:
+    """Short tagline for the detail dialog."""
+    if signal == "Strong":
+        return "Strong long-term accumulation zone"
+    if signal == "Medium":
+        return "Watch closely - possible staggered entry"
+    return "Not yet a meaningful dip"
+
+
+def build_reasons(price: float, drawdown_pct: float, rsi_val: float,
+                  ma50_val: float | None, ma200_val: float | None) -> list[str]:
+    """Human-readable bullet points explaining why this is (or isn't) a dip."""
+    reasons: list[str] = []
+
+    # Drawdown
+    dd = abs(drawdown_pct)
+    if dd >= 20:
+        reasons.append(f"52W drawdown: {round(drawdown_pct, 1)}% (deep correction)")
+    elif dd >= 10:
+        reasons.append(f"52W drawdown: {round(drawdown_pct, 1)}% (moderate correction)")
+    elif dd >= 5:
+        reasons.append(f"52W drawdown: {round(drawdown_pct, 1)}% (shallow pullback)")
+    else:
+        reasons.append(f"52W drawdown: {round(drawdown_pct, 1)}% (near highs)")
+
+    # RSI
+    if rsi_val <= 30:
+        reasons.append(f"RSI: {round(rsi_val, 1)} (oversold)")
+    elif rsi_val <= 40:
+        reasons.append(f"RSI: {round(rsi_val, 1)} (approaching oversold)")
+    elif rsi_val <= 55:
+        reasons.append(f"RSI: {round(rsi_val, 1)} (neutral)")
+    else:
+        reasons.append(f"RSI: {round(rsi_val, 1)} (not oversold)")
+
+    # Moving averages
+    below_ma50 = ma50_val is not None and price < ma50_val
+    below_ma200 = ma200_val is not None and price < ma200_val
+    if below_ma50 and below_ma200:
+        reasons.append("Below MA50 & MA200 (strong trend break)")
+    elif below_ma50:
+        reasons.append("Below MA50 (short-term weakness)")
+    elif below_ma200:
+        reasons.append("Below MA200 (long-term weakness)")
+    else:
+        reasons.append("Above MA50 & MA200 (trend intact)")
+
+    return reasons
+
+
 def analyze_dataframe(ticker: str, df: pd.DataFrame) -> dict:
     """Analyze a ticker given OHLC dataframe with 'Close' column + pre-computed indicators.
     df must have: Close, RSI, MA50, MA200 columns."""
@@ -150,6 +200,8 @@ def analyze_dataframe(ticker: str, df: pd.DataFrame) -> dict:
         "score": score,
         "signal_strength": signal,
         "recommendation": recommendation(signal, score),
+        "conclusion": conclusion(signal, score),
+        "reasons": build_reasons(price, drawdown_pct, rsi_val, ma50_val, ma200_val),
         "components": {
             "drawdown_score": round(s_dd, 1),
             "ma_score": round(s_ma, 1),
