@@ -26,20 +26,21 @@ export default function Dashboard() {
     try {
       const [wl, an] = await Promise.all([getWatchlist(), getAnalyze()]);
 
-      // 🛡️ SAFE GUARD
       setWatchlist(wl || { tickers: [], max_custom: 10 });
 
-      setAnalyzeData(
-        an || {
-          results: [],
-          best_buy_today: null,
-          strong_count: 0,
-        }
-      );
-    } catch (e) {
-      toast.error("Failed to load analysis");
+      const results = an?.results || [];
 
-      // fallback safe state
+      setAnalyzeData({
+        generated_at: new Date().toISOString(),
+        results,
+        best_buy_today:
+          results.sort((a, b) => b.score - a.score)[0] || null,
+        strong_count: results.filter(
+          (x) => x?.signal_strength === "Strong"
+        ).length,
+      });
+    } catch {
+      toast.error("Failed to load analysis");
       setWatchlist({ tickers: [], max_custom: 10 });
       setAnalyzeData({
         results: [],
@@ -61,13 +62,13 @@ export default function Dashboard() {
     setRefreshing(true);
     try {
       const r = await refreshAll();
-
       const safeResults = r?.results || [];
 
       setAnalyzeData({
         generated_at: r?.generated_at,
         results: safeResults,
-        best_buy_today: r?.best_buy_today || null,
+        best_buy_today:
+          safeResults.sort((a, b) => b.score - a.score)[0] || null,
         strong_count: safeResults.filter(
           (x) => x?.signal_strength === "Strong"
         ).length,
@@ -81,73 +82,92 @@ export default function Dashboard() {
     }
   };
 
-  // 🛡️ SAFE DATA
   const results = analyzeData?.results || [];
   const strongCount = analyzeData?.strong_count || 0;
   const safeWatchlist = watchlist || { tickers: [], max_custom: 10 };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-muted/30">
       <Header lastUpdated={analyzeData?.generated_at} />
 
-      <main className="mx-auto max-w-7xl w-full px-6 py-8 flex-1 flex flex-col gap-10">
+      <main className="mx-auto max-w-7xl w-full px-6 py-8 flex flex-col gap-10">
 
-        <RecommendedAction onOpenDetail={(t) => setSelectedTicker(t)} />
+        {/* 🔥 HERO */}
+        <RecommendedAction onOpenDetail={setSelectedTicker} />
 
-        <DiscoveryFeed
-          onOpenDetail={(t) => setSelectedTicker(t)}
-          onWatchlistChange={loadAll}
-        />
+        {/* 🧠 INSIGHTS GRID */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <DiscoveryFeed
+            onOpenDetail={setSelectedTicker}
+            onWatchlistChange={loadAll}
+          />
+          <InvestmentPlan onOpenDetail={setSelectedTicker} />
+        </div>
 
-        <InvestmentPlan onOpenDetail={(t) => setSelectedTicker(t)} />
-
-        {/* Best Buy */}
+        {/* ⭐ BEST BUY */}
         <section>
-          <h2 className="text-lg font-medium mb-3">Your Watchlist · Best Buy</h2>
+          <h2 className="text-lg font-semibold mb-3">
+            Best Opportunity from Watchlist
+          </h2>
 
           {loading ? (
-            <Card className="p-8">
-              <div>Analyzing watchlist…</div>
-            </Card>
+            <Card className="p-8">Analyzing watchlist…</Card>
           ) : (
             <BestBuyCard
               best={analyzeData?.best_buy_today}
               strongCount={strongCount}
               total={results.length}
-              onOpenDetail={(t) => setSelectedTicker(t)}
+              onOpenDetail={setSelectedTicker}
             />
           )}
         </section>
 
-        {/* Watchlist */}
-        <section>
-          <h2 className="text-lg font-medium">Watchlist</h2>
+        {/* ⚙️ WATCHLIST + ANALYSIS */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-          <Button onClick={handleRefresh} disabled={refreshing}>
-            <RefreshCw className={`mr-2 ${refreshing ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
+          {/* Watchlist */}
+          <Card className="p-5 flex flex-col gap-4">
+            <div className="flex justify-between items-center">
+              <h2 className="font-semibold">Watchlist</h2>
 
-          <WatchlistManager
-            tickers={safeWatchlist.tickers || []}
-            maxCustom={safeWatchlist.max_custom || 10}
-            onChanged={loadAll}
-          />
-        </section>
+              <Button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                size="sm"
+              >
+                <RefreshCw
+                  className={`mr-2 ${refreshing ? "animate-spin" : ""}`}
+                />
+                Refresh
+              </Button>
+            </div>
 
-        {/* Analysis */}
-        <section>
-          <h2 className="text-lg font-medium mb-3">Signal Analysis</h2>
+            <WatchlistManager
+              tickers={safeWatchlist.tickers || []}
+              maxCustom={safeWatchlist.max_custom || 10}
+              onChanged={loadAll}
+            />
+          </Card>
 
-          <AnalysisTable
-            rows={results}
-            onRowClick={(t) => setSelectedTicker(t)}
-          />
-        </section>
+          {/* Analysis */}
+          <div className="lg:col-span-2">
+            <Card className="p-5">
+              <h2 className="font-semibold mb-4">Signal Analysis</h2>
 
-        <footer className="text-xs text-center text-muted-foreground">
+              <AnalysisTable
+                rows={results}
+                onRowClick={setSelectedTicker}
+              />
+            </Card>
+          </div>
+
+        </div>
+
+        {/* Footer */}
+        <footer className="text-xs text-center text-muted-foreground pt-4">
           For informational purposes only — not investment advice.
         </footer>
+
       </main>
 
       <StockDetailDialog
