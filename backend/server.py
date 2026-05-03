@@ -56,13 +56,13 @@ async def _analyze_one(ticker: str):
         return {"ticker": ticker, "score": 0}
 
 
-async def get_watchlist():
+async def get_watchlist_safe():
     if not db:
         return [{"ticker": t, "is_default": True} for t in DEFAULT_TICKERS]
 
     try:
         docs = await db.watchlist_custom.find({}, {"_id": 0}).to_list(50)
-        custom = [d["ticker"] for d in docs]
+        custom = [d.get("ticker") for d in docs if d.get("ticker")]
 
         return (
             [{"ticker": t, "is_default": True} for t in DEFAULT_TICKERS]
@@ -73,7 +73,7 @@ async def get_watchlist():
 
 
 # ---------------- App ----------------
-app = FastAPI()
+app = FastAPI(title="Stock Dip Analyzer")
 api = APIRouter(prefix="/api")
 
 
@@ -82,13 +82,22 @@ async def startup():
     await init_db()
 
 
-# -------- Watchlist --------
+# ---------------- STATUS ----------------
+@api.get("/status")
+async def status():
+    return {
+        "scheduler": {"running": True},
+        "notifier": {"enabled": True}
+    }
+
+
+# ---------------- WATCHLIST ----------------
 @api.get("/watchlist")
 async def watchlist():
-    return await get_watchlist()
+    return await get_watchlist_safe()
 
 
-# -------- Analyze --------
+# ---------------- ANALYZE ----------------
 @api.get("/analyze")
 async def analyze():
     tasks = [_analyze_one(t) for t in MARKET_UNIVERSE[:6]]
@@ -100,7 +109,25 @@ async def analyze():
     return {"results": valid}
 
 
-# -------- Recommended Action --------
+# ---------------- DISCOVER ----------------
+@api.get("/discover")
+async def discover(top: int = 12, include_weak: bool = False):
+    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE[:top]]
+    results = await safe_gather(tasks)
+
+    valid = [r for r in results if isinstance(r, dict)]
+    valid.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+    strong = [r for r in valid if r.get("score", 0) >= 60]
+
+    return {
+        "results": valid,
+        "strong_count": len(strong),
+        "universe_size": len(MARKET_UNIVERSE)
+    }
+
+
+# ---------------- RECOMMENDED ----------------
 @api.get("/recommended-action")
 async def recommended():
     tasks = [_analyze_one(t) for t in MARKET_UNIVERSE[:6]]
@@ -115,26 +142,18 @@ async def recommended():
         return {
             "picks": [],
             "action": "Wait",
-            "message": "No good opportunities right now",
+            "message": "No good opportunities",
             "tone": "weak"
         }
 
     top_score = picks[0].get("score", 0)
 
     if top_score >= 70:
-        return {
-            "picks": picks,
-            "action": "Buy Now",
-            "message": "Strong dip opportunity",
-            "tone": "strong"
-        }
+        action = "Buy Now"
+        tone = "strong"
     elif top_score >= 60:
-        return {
-            "picks": picks,
-            "action": "Accumulate",
-            "message": "Moderate opportunity",
-            "tone": "medium"
-        }
+        action = "Accumulate"
+        tone = "medium"
     else:
         return {
             "picks": [],
@@ -143,8 +162,15 @@ async def recommended():
             "tone": "weak"
         }
 
+    return {
+        "picks": picks,
+        "action": action,
+        "message": "Opportunity detected",
+        "tone": tone
+    }
 
-# -------- Investment Plan --------
+
+# ---------------- INVESTMENT PLAN ----------------
 @api.get("/investment-plan")
 async def investment_plan(budget: int = 5000):
     tasks = [_analyze_one(t) for t in MARKET_UNIVERSE[:6]]
@@ -160,28 +186,57 @@ async def investment_plan(budget: int = 5000):
     if not picks:
         return {
             "budget": budget,
-            "allocations": [{"ticker": "NIFTYBEES.NS", "amount": budget}],
-            "reason": "No opportunities"
+            "allocations": [{
+                "ticker": "NIFTYBEES.NS",
+                "amount": budget
+            }],
+            "total_allocated": budget,
+            "reason": "No opportunities",
+            "qualifying_count": 0
         }
 
     total_score = sum(p.get("score", 0) for p in picks)
 
     allocations = []
     for p in picks:
-        amt = budget * p["score"] / total_score
+        amt = int(budget * p["score"] / total_score)
         allocations.append({
             "ticker": p["ticker"],
-            "amount": int(amt)
+            "amount": amt
         })
 
     return {
         "budget": budget,
         "allocations": allocations,
-        "reason": "Top picks"
+        "total_allocated": sum(a["amount"] for a in allocations),
+        "reason": "Top picks",
+        "qualifying_count": len(valid)
     }
 
 
-# -------- CORS --------
+# ---------------- STOCK DETAIL ----------------
+@api.get("/stock/{ticker}")
+async def stock_detail(ticker: str):
+    try:
+        df = await get_history(db, ticker)
+
+        if df is None or df.empty:
+            return {"analysis": {}, "history": []}
+
+        analysis = analyze_dataframe(ticker, df)
+
+        history = df.tail(60).to_dict(orient="records")
+
+        return {
+            "analysis": analysis,
+            "history": history
+        }
+
+    except Exception:
+        return {"analysis": {}, "history": []}
+
+
+# ---------------- CORS ----------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
