@@ -57,12 +57,18 @@ async def safe_gather(tasks):
 async def _analyze_one(ticker: str):
     try:
         df = await get_history(db, ticker)
-        if df is None or df.empty:
-            return {"ticker": ticker, "score": 0}
-        return analyze_dataframe(ticker, df)
-    except Exception:
-        return {"ticker": ticker, "score": 0}
 
+        if df is None or df.empty:
+            print(f"❌ EMPTY DF for {ticker}")
+            return {"ticker": ticker, "score": 0}
+
+        print(f"✅ DATA OK for {ticker}", df.tail(2))
+
+        return analyze_dataframe(ticker, df)
+
+    except Exception as e:
+        print(f"❌ ANALYZE ERROR {ticker}:", e)
+        return {"ticker": ticker, "score": 0}
 
 async def get_watchlist_safe():
     if not db:
