@@ -32,14 +32,37 @@ logging.basicConfig(
 logger = logging.getLogger("stock_dip_analyzer")
 
 # --- MongoDB ---
-mongo_url = os.environ["MONGO_URL"]
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ["DB_NAME"]]
+import os
+from motor.motor_asyncio import AsyncIOMotorClient
+
+mongo_url = os.environ.get("MONGO_URL")
+
+client = AsyncIOMotorClient(
+    mongo_url,
+    tls=True,
+    tlsAllowInvalidCertificates=True,
+    serverSelectionTimeoutMS=5000
+)
+
+db = None  # default safe state
+
+async def init_db():
+    global db
+    try:
+        await client.admin.command("ping")
+        print("MongoDB connected ✅")
+        db = client[os.environ["DB_NAME"]]
+    except Exception as e:
+        print("MongoDB connection failed ❌", e)
+        db = None
 
 # --- FastAPI ---
 app = FastAPI(title="Stock Dip Analyzer", version="1.0.0")
 api = APIRouter(prefix="/api")
 
+@app.on_event("startup")
+async def startup_event():
+    await init_db()
 
 class TickerAdd(BaseModel):
     ticker: str = Field(..., min_length=1, max_length=30)
