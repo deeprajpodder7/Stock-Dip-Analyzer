@@ -38,6 +38,7 @@ export const DiscoveryFeed = ({ onOpenDetail, onWatchlistChange }) => {
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     load(false);
   }, []);
