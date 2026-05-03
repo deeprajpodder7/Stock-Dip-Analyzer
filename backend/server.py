@@ -15,7 +15,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 from config import (
     DEFAULT_TICKERS, MAX_CUSTOM_TICKERS, NTFY_TOPIC, NTFY_BASE,
-    MARKET_UNIVERSE, DISCOVER_TOP_N,
+    , DISCOVER_TOP_N,
 )
 from data import get_history, validate_ticker_symbol
 from scorer import analyze_dataframe
@@ -77,7 +77,9 @@ async def _analyze_one(ticker: str) -> dict:
 async def analyze_all(db_arg=None) -> List[dict]:
     wl = await get_watchlist()
     tasks = [_analyze_one(item["ticker"]) for item in wl]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    results = await asyncio.wait_for(
+    asyncio.gather(*tasks, return_exceptions=True),
+    timeout=20)
     out = []
     for item, res in zip(wl, results):
         if isinstance(res, Exception):
@@ -154,8 +156,10 @@ async def watchlist_delete(ticker: str):
 async def discover(top: int = DISCOVER_TOP_N, include_weak: bool = False):
     """Scan the curated market universe and return the best-scored dip opportunities.
     Results are cached via the same yfinance+Mongo cache used by /analyze."""
-    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE[:6]]
+    results = await asyncio.wait_for(
+    asyncio.gather(*tasks, return_exceptions=True),
+    timeout=20)
     out = []
     custom = {d["ticker"] async for d in db.watchlist_custom.find({}, {"_id": 0, "ticker": 1})}
     for ticker, res in zip(MARKET_UNIVERSE, results):
@@ -187,8 +191,10 @@ async def recommended_action():
       - Picks NEVER include stocks with score < 60.
     Returns top 1-2 qualifying stocks.
     """
-    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE[:8]]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE[:6]]
+    results = await asyncio.wait_for(
+    asyncio.gather(*tasks, return_exceptions=True),
+    timeout=20)
     valid = [
         r for r in results
         if not isinstance(r, Exception) and not r.get("error")
@@ -261,7 +267,7 @@ async def investment_plan(budget: int = 5000):
     if budget < 500:
         raise HTTPException(400, "Budget must be at least ₹500")
 
-    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE[:8]]
+    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE[:6]]
     results = await asyncio.wait_for(
     asyncio.gather(*tasks, return_exceptions=True),
     timeout=20)
@@ -282,7 +288,7 @@ async def investment_plan(budget: int = 5000):
         # Fallback: safe ETF
         fallback_ticker = "NIFTYBEES.NS"
         fallback_analysis = next(
-            (r for r, t in zip(results, MARKET_UNIVERSE)
+            (r for r, t in zip(results, )
              if t == fallback_ticker and not isinstance(r, Exception) and not r.get("error")),
             None,
         )
