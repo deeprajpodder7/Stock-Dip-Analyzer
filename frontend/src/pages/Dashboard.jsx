@@ -25,10 +25,27 @@ export default function Dashboard() {
   const loadAll = useCallback(async () => {
     try {
       const [wl, an] = await Promise.all([getWatchlist(), getAnalyze()]);
-      setWatchlist(wl);
-      setAnalyzeData(an);
+
+      // 🛡️ SAFE GUARD
+      setWatchlist(wl || { tickers: [], max_custom: 10 });
+
+      setAnalyzeData(
+        an || {
+          results: [],
+          best_buy_today: null,
+          strong_count: 0,
+        }
+      );
     } catch (e) {
       toast.error("Failed to load analysis");
+
+      // fallback safe state
+      setWatchlist({ tickers: [], max_custom: 10 });
+      setAnalyzeData({
+        results: [],
+        best_buy_today: null,
+        strong_count: 0,
+      });
     }
   }, []);
 
@@ -44,12 +61,18 @@ export default function Dashboard() {
     setRefreshing(true);
     try {
       const r = await refreshAll();
+
+      const safeResults = r?.results || [];
+
       setAnalyzeData({
-        generated_at: r.generated_at,
-        results: r.results,
-        best_buy_today: r.best_buy_today,
-        strong_count: r.results.filter((x) => x.signal_strength === "Strong").length,
+        generated_at: r?.generated_at,
+        results: safeResults,
+        best_buy_today: r?.best_buy_today || null,
+        strong_count: safeResults.filter(
+          (x) => x?.signal_strength === "Strong"
+        ).length,
       });
+
       toast.success("Analysis refreshed");
     } catch {
       toast.error("Refresh failed");
@@ -58,36 +81,33 @@ export default function Dashboard() {
     }
   };
 
-  const results = analyzeData?.results ?? [];
-  const strongCount = analyzeData?.strong_count ?? 0;
+  // 🛡️ SAFE DATA
+  const results = analyzeData?.results || [];
+  const strongCount = analyzeData?.strong_count || 0;
+  const safeWatchlist = watchlist || { tickers: [], max_custom: 10 };
 
   return (
     <div className="min-h-screen flex flex-col">
       <Header lastUpdated={analyzeData?.generated_at} />
 
       <main className="mx-auto max-w-7xl w-full px-6 py-8 flex-1 flex flex-col gap-10">
-        {/* Recommended Action banner - top of page */}
+
         <RecommendedAction onOpenDetail={(t) => setSelectedTicker(t)} />
 
-        {/* Discovery feed - market scan hero */}
         <DiscoveryFeed
           onOpenDetail={(t) => setSelectedTicker(t)}
           onWatchlistChange={loadAll}
         />
 
-        {/* Investment Plan */}
         <InvestmentPlan onOpenDetail={(t) => setSelectedTicker(t)} />
 
-        {/* Best Buy (watchlist-based) */}
-        <section data-testid="section-best-buy">
-          <div className="flex items-baseline justify-between mb-3">
-            <h2 className="text-lg font-medium" style={{ fontFamily: "Outfit" }}>
-              Your Watchlist · Best Buy
-            </h2>
-          </div>
+        {/* Best Buy */}
+        <section>
+          <h2 className="text-lg font-medium mb-3">Your Watchlist · Best Buy</h2>
+
           {loading ? (
-            <Card className="p-8 border border-border">
-              <div className="text-sm text-muted-foreground uppercase tracking-[0.2em]">Analyzing watchlist…</div>
+            <Card className="p-8">
+              <div>Analyzing watchlist…</div>
             </Card>
           ) : (
             <BestBuyCard
@@ -99,47 +119,34 @@ export default function Dashboard() {
           )}
         </section>
 
-        {/* Watchlist manager + refresh */}
-        <section className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4" data-testid="section-watchlist">
-          <div>
-            <h2 className="text-lg font-medium" style={{ fontFamily: "Outfit" }}>Watchlist</h2>
-            <p className="text-sm text-muted-foreground">
-              5 defaults always present. Add up to {watchlist.max_custom} custom NSE tickers (use the <code className="text-xs bg-muted px-1 rounded">.NS</code> suffix).
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              data-testid="refresh-data-button"
-              onClick={handleRefresh}
-              disabled={refreshing}
-            >
-              <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-              {refreshing ? "Refreshing…" : "Refresh"}
-            </Button>
-          </div>
-        </section>
-
+        {/* Watchlist */}
         <section>
+          <h2 className="text-lg font-medium">Watchlist</h2>
+
+          <Button onClick={handleRefresh} disabled={refreshing}>
+            <RefreshCw className={`mr-2 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+
           <WatchlistManager
-            tickers={watchlist.tickers}
-            maxCustom={watchlist.max_custom}
+            tickers={safeWatchlist.tickers || []}
+            maxCustom={safeWatchlist.max_custom || 10}
             onChanged={loadAll}
           />
         </section>
 
-        {/* Analysis table */}
-        <section data-testid="section-analysis">
-          <div className="flex items-baseline justify-between mb-3">
-            <h2 className="text-lg font-medium" style={{ fontFamily: "Outfit" }}>Signal Analysis</h2>
-            <div className="text-xs text-muted-foreground uppercase tracking-[0.2em]">
-              Sorted by score
-            </div>
-          </div>
-          <AnalysisTable rows={results} onRowClick={(t) => setSelectedTicker(t)} />
+        {/* Analysis */}
+        <section>
+          <h2 className="text-lg font-medium mb-3">Signal Analysis</h2>
+
+          <AnalysisTable
+            rows={results}
+            onRowClick={(t) => setSelectedTicker(t)}
+          />
         </section>
 
-        <footer className="py-6 text-center text-xs text-muted-foreground">
-          Data via Yahoo Finance · Alerts via ntfy.sh · For informational purposes only — not investment advice.
+        <footer className="text-xs text-center text-muted-foreground">
+          For informational purposes only — not investment advice.
         </footer>
       </main>
 
