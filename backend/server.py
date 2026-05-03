@@ -261,8 +261,10 @@ async def investment_plan(budget: int = 5000):
     if budget < 500:
         raise HTTPException(400, "Budget must be at least ₹500")
 
-    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE[:8]]
+    results = await asyncio.wait_for(
+    asyncio.gather(*tasks, return_exceptions=True),
+    timeout=20)
     candidates = []
     for ticker, res in zip(MARKET_UNIVERSE, results):
         if isinstance(res, Exception) or res.get("error"):
