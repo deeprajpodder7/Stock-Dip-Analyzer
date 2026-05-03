@@ -13,10 +13,6 @@ MAX_CUSTOM_TICKERS = 10
 # Market universe for "Top Dip Opportunities" discovery feed.
 # Curated list of liquid NSE stocks + popular ETFs — good long-term candidates.
 MARKET_UNIVERSE = [
-    # Broad-market & sector ETFs
-    "NIFTYBEES.NS", "BANKBEES.NS", "JUNIORBEES.NS", "ITBEES.NS",
-    "CPSEETF.NS", "GOLDBEES.NS",
-    # Nifty 50 large caps across sectors
     "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS",
     "SBIN.NS"
 ]
