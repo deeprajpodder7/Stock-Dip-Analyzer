@@ -9,6 +9,182 @@ import { formatINR, formatPct, formatNum } from "@/lib/format";
 import { getDiscover, addTicker } from "@/lib/api";
 import { toast } from "sonner";
 
+export const DiscoveryFeed = ({ onOpenDetail, onWatchlistChange }) => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [includeWeak, setIncludeWeak] = useState(false);
+  const [addingTicker, setAddingTicker] = useState(null);
+
+  const load = async (weak = includeWeak) => {
+    setLoading(true);
+    try {
+      const d = await getDiscover(12, weak);
+
+      // 🛡️ SAFE DATA
+      setData(
+        d || {
+          results: [],
+          strong_count: 0,
+          universe_size: 0,
+        }
+      );
+    } catch {
+      toast.error("Failed to load market discovery");
+      setData({
+        results: [],
+        strong_count: 0,
+        universe_size: 0,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load(false);
+  }, []);
+
+  const toggleWeak = (v) => {
+    setIncludeWeak(v);
+    load(v);
+  };
+
+  const handleAdd = async (ticker, e) => {
+    e.stopPropagation();
+    if (!ticker) return;
+
+    setAddingTicker(ticker);
+    try {
+      await addTicker(ticker);
+      toast.success(`${ticker} added`);
+      await load(includeWeak);
+      onWatchlistChange?.();
+    } catch (err) {
+      const msg = err?.response?.data?.detail || "Failed to add ticker";
+      toast.error(msg);
+    } finally {
+      setAddingTicker(null);
+    }
+  };
+
+  // 🛡️ SAFE DATA EXTRACTION
+  const results = Array.isArray(data?.results) ? data.results : [];
+  const strongCount = data?.strong_count || 0;
+  const universeSize = data?.universe_size || 0;
+
+  return (
+    <section className="space-y-4">
+      {/* HEADER */}
+      <div className="flex flex-col sm:flex-row sm:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
+            <Flame className="h-3.5 w-3.5 text-[#b33a20]" />
+            Market Scan
+          </div>
+
+          <h2 className="text-2xl font-semibold">Best scored right now</h2>
+
+          <p className="text-sm text-muted-foreground">
+            Scanning {universeSize} stocks ·{" "}
+            <span className="text-[#b33a20] font-medium">
+              {strongCount} strong
+            </span>
+          </p>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <Switch checked={includeWeak} onCheckedChange={toggleWeak} />
+
+          <Button onClick={() => load(includeWeak)} disabled={loading}>
+            <RefreshCw className={loading ? "animate-spin" : ""} />
+          </Button>
+        </div>
+      </div>
+
+      {/* LOADING */}
+      {loading && !data && (
+        <Card className="p-6">Scanning market…</Card>
+      )}
+
+      {/* EMPTY */}
+      {!loading && results.length === 0 && (
+        <Card className="p-6">
+          No opportunities right now.
+        </Card>
+      )}
+
+      {/* GRID */}
+      {results.length > 0 && (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {results.map((r, idx) => {
+            const ticker = r?.ticker || `unknown-${idx}`;
+            const short = ticker.replace(".NS", "");
+
+            const price = r?.price ?? null;
+            const drawdown = r?.drawdown_percent ?? null;
+            const rsi = r?.rsi ?? null;
+            const score = r?.score ?? 0;
+            const signal = r?.signal_strength || "Weak";
+
+            return (
+              <Card
+                key={ticker}
+                className="p-4 cursor-pointer"
+                onClick={() => onOpenDetail?.(ticker)}
+              >
+                <div className="text-xs text-muted-foreground">
+                  #{idx + 1}
+                </div>
+
+                <div className="flex justify-between">
+                  <div>
+                    <div className="font-semibold">{short}</div>
+                    <div className="text-xs">{ticker}</div>
+                  </div>
+                  <SignalBadge signal={signal} />
+                </div>
+
+                <div className="grid grid-cols-3 mt-3 text-sm">
+                  <div>{price ? formatINR(price) : "-"}</div>
+                  <div>{drawdown ? formatPct(drawdown) : "-"}</div>
+                  <div>{rsi ? formatNum(rsi, 1) : "-"}</div>
+                </div>
+
+                <div className="flex justify-between mt-3">
+                  <div>{formatNum(score, 1)}/100</div>
+
+                  {r?.in_watchlist ? (
+                    <span className="text-green-600 text-xs">Added</span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={(e) => handleAdd(ticker, e)}
+                      disabled={addingTicker === ticker}
+                    >
+                      {addingTicker === ticker ? "..." : "Add"}
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+};
+
+export default DiscoveryFeed;import { useEffect, useState } from "react";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { TrendingDown, Plus, Check, Flame, RefreshCw } from "lucide-react";
+import SignalBadge from "@/components/SignalBadge";
+import { formatINR, formatPct, formatNum } from "@/lib/format";
+import { getDiscover, addTicker } from "@/lib/api";
+import { toast } from "sonner";
+
 /**
  * Discovery feed: scans curated NSE universe and shows top-scored dip opportunities.
  */
