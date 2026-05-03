@@ -1,211 +1,187 @@
-"""Dip detection scoring engine.
+# PRODUCTION-GRADE SCORER
 
-Score 0-100 combining:
-  Drawdown (30%), MA position (25%), RSI (25%), Market confidence (20%).
-
-Classification:
-  Strong: score >= 70
-  Medium: 40 <= score < 70
-  Weak:   score < 40
-"""
 from __future__ import annotations
 import math
 import pandas as pd
-from config import W_DRAWDOWN, W_MA, W_RSI, W_CONF, STRONG_SCORE, MEDIUM_SCORE
+
+# ---------------- CONFIG ----------------
+STRONG_SCORE = 80
+BUY_SCORE = 70
+ACCUMULATE_SCORE = 60
 
 
+# ---------------- CORE SCORING ----------------
 def _drawdown_score(drawdown_pct: float) -> float:
-    """Drawdown-based score (0-100). drawdown_pct is positive value."""
     dd = abs(drawdown_pct)
-    if dd >= 25:
+
+    if dd >= 35:
         return 100
+    if dd >= 30:
+        return 90
+    if dd >= 25:
+        return 80
     if dd >= 20:
-        return 85
+        return 65
     if dd >= 15:
-        return 70
+        return 50
     if dd >= 10:
-        return 55
-    if dd >= 5:
         return 30
-    return max(0, dd * 4)  # gentle ramp for <5%
-
-
-def _ma_score(price: float, ma50: float | None, ma200: float | None) -> float:
-    """MA position score. Below MA50=signal, below MA200=strong."""
-    score = 0
-    if ma50 and price < ma50:
-        # how far below MA50
-        diff = (ma50 - price) / ma50 * 100
-        score += min(50, 20 + diff * 2)
-    if ma200 and price < ma200:
-        diff = (ma200 - price) / ma200 * 100
-        score += min(50, 25 + diff * 2)
-    return min(100, score)
+    return 10
 
 
 def _rsi_score(rsi_val: float) -> float:
-    """RSI score: <30 strong, <35 medium, <45 weak."""
     if rsi_val <= 25:
         return 100
     if rsi_val <= 30:
         return 85
     if rsi_val <= 35:
-        return 65
-    if rsi_val <= 45:
-        return 35
-    if rsi_val <= 55:
-        return 15
+        return 70
+    if rsi_val <= 40:
+        return 50
+    if rsi_val <= 50:
+        return 25
     return 0
 
 
+def _ma_score(price: float, ma50: float | None, ma200: float | None) -> float:
+    score = 0
+
+    if ma50 and price < ma50:
+        score += 40
+
+    if ma200 and price < ma200:
+        score += 60
+
+    return min(100, score)
+
+
 def _market_confidence(close: pd.Series) -> float:
-    """Heuristic market confidence based on recent volatility vs historical.
-    Lower realised volatility last 20 days relative to 252 days = higher confidence.
-    Returns 0-100.
-    """
     if len(close) < 60:
         return 50
+
     returns = close.pct_change().dropna()
     recent_vol = returns.tail(20).std()
-    long_vol = returns.tail(252).std() if len(returns) >= 252 else returns.std()
-    if not recent_vol or not long_vol or math.isnan(recent_vol) or math.isnan(long_vol):
+    long_vol = returns.std()
+
+    if not recent_vol or not long_vol:
         return 50
+
     ratio = recent_vol / long_vol
-    # ratio < 1 means calm => high confidence; ratio > 1 => turbulent
-    if ratio <= 0.7:
+
+    if ratio < 0.7:
         return 90
-    if ratio <= 0.9:
-        return 75
-    if ratio <= 1.1:
-        return 60
-    if ratio <= 1.3:
-        return 40
-    return 25
+    if ratio < 1:
+        return 70
+    if ratio < 1.3:
+        return 50
+    return 30
 
 
+# ---------------- INTELLIGENT BOOST ----------------
+def _conviction_boost(score, rsi, drawdown):
+    boost = 0
+
+    if rsi < 30 and abs(drawdown) > 20:
+        boost += 10
+
+    if rsi < 25 and abs(drawdown) > 25:
+        boost += 10
+
+    return boost
+
+
+# ---------------- CLASSIFICATION ----------------
 def classify(score: float) -> str:
     if score >= STRONG_SCORE:
         return "Strong"
-    if score >= MEDIUM_SCORE:
-        return "Medium"
+    if score >= BUY_SCORE:
+        return "Buy"
+    if score >= ACCUMULATE_SCORE:
+        return "Accumulate"
     return "Weak"
 
 
 def recommendation(signal: str, score: float) -> str:
     if signal == "Strong":
-        return "Strong dip - good for long-term accumulation."
-    if signal == "Medium":
-        return "Moderate dip - consider staggered entry."
-    return "No meaningful dip - wait for better opportunity."
+        return "High conviction dip — strong buy opportunity."
+    if signal == "Buy":
+        return "Good dip — start buying in parts."
+    if signal == "Accumulate":
+        return "Mild dip — accumulate slowly."
+    return "No meaningful opportunity."
 
 
-def conclusion(signal: str, score: float) -> str:
-    """Short tagline for the detail dialog."""
-    if signal == "Strong":
-        return "Strong long-term accumulation zone"
-    if signal == "Medium":
-        return "Watch closely - possible staggered entry"
-    return "Not yet a meaningful dip"
+def action(signal: str) -> str:
+    return signal
 
 
-def build_reasons(price: float, drawdown_pct: float, rsi_val: float,
-                  ma50_val: float | None, ma200_val: float | None) -> list[str]:
-    """Human-readable bullet points explaining why this is (or isn't) a dip."""
-    reasons: list[str] = []
+def build_reasons(price, drawdown, rsi, ma50, ma200):
+    reasons = []
 
-    # Drawdown
-    dd = abs(drawdown_pct)
-    if dd >= 20:
-        reasons.append(f"52W drawdown: {round(drawdown_pct, 1)}% (deep correction)")
-    elif dd >= 10:
-        reasons.append(f"52W drawdown: {round(drawdown_pct, 1)}% (moderate correction)")
-    elif dd >= 5:
-        reasons.append(f"52W drawdown: {round(drawdown_pct, 1)}% (shallow pullback)")
+    if abs(drawdown) > 25:
+        reasons.append("Deep correction from highs")
+    elif abs(drawdown) > 15:
+        reasons.append("Moderate correction")
     else:
-        reasons.append(f"52W drawdown: {round(drawdown_pct, 1)}% (near highs)")
+        reasons.append("Near highs")
 
-    # RSI
-    if rsi_val <= 30:
-        reasons.append(f"RSI: {round(rsi_val, 1)} (oversold)")
-    elif rsi_val <= 40:
-        reasons.append(f"RSI: {round(rsi_val, 1)} (approaching oversold)")
-    elif rsi_val <= 55:
-        reasons.append(f"RSI: {round(rsi_val, 1)} (neutral)")
+    if rsi < 30:
+        reasons.append("Oversold RSI")
+    elif rsi < 40:
+        reasons.append("Weak momentum")
     else:
-        reasons.append(f"RSI: {round(rsi_val, 1)} (not oversold)")
+        reasons.append("Neutral momentum")
 
-    # Moving averages
-    below_ma50 = ma50_val is not None and price < ma50_val
-    below_ma200 = ma200_val is not None and price < ma200_val
-    if below_ma50 and below_ma200:
-        reasons.append("Below MA50 & MA200 (strong trend break)")
-    elif below_ma50:
-        reasons.append("Below MA50 (short-term weakness)")
-    elif below_ma200:
-        reasons.append("Below MA200 (long-term weakness)")
-    else:
-        reasons.append("Above MA50 & MA200 (trend intact)")
+    if ma50 and price < ma50:
+        reasons.append("Below MA50")
+
+    if ma200 and price < ma200:
+        reasons.append("Below MA200")
 
     return reasons
 
 
+# ---------------- MAIN ----------------
 def analyze_dataframe(ticker: str, df: pd.DataFrame) -> dict:
-    """Analyze a ticker given OHLC dataframe with 'Close' column + pre-computed indicators.
-    df must have: Close, RSI, MA50, MA200 columns."""
     close = df["Close"].dropna()
+
     if len(close) < 30:
-        return {
-            "ticker": ticker,
-            "error": "Insufficient data",
-            "price": None,
-            "previous_price": None,
-            "drawdown_percent": None,
-            "rsi": None,
-            "score": 0,
-            "signal_strength": "Weak",
-            "recommendation": "Insufficient data",
-        }
+        return {"ticker": ticker, "score": 0, "signal_strength": "Weak"}
 
     price = float(close.iloc[-1])
-    prev = float(close.iloc[-2]) if len(close) >= 2 else price
+    prev = float(close.iloc[-2])
 
-    # 52-week high drawdown
-    year_window = close.tail(252) if len(close) >= 252 else close
-    high_52w = float(year_window.max())
-    drawdown_pct = (price - high_52w) / high_52w * 100  # negative
+    high = float(close.max())
+    drawdown = (price - high) / high * 100
 
-    rsi_val = float(df["RSI"].dropna().iloc[-1]) if df["RSI"].dropna().size else 50.0
-    ma50_val = float(df["MA50"].dropna().iloc[-1]) if df["MA50"].dropna().size else None
-    ma200_val = float(df["MA200"].dropna().iloc[-1]) if df["MA200"].dropna().size else None
+    rsi = float(df["RSI"].iloc[-1])
+    ma50 = float(df["MA50"].iloc[-1]) if "MA50" in df else None
+    ma200 = float(df["MA200"].iloc[-1]) if "MA200" in df else None
 
-    s_dd = _drawdown_score(drawdown_pct)
-    s_ma = _ma_score(price, ma50_val, ma200_val)
-    s_rsi = _rsi_score(rsi_val)
-    s_conf = _market_confidence(close)
+    s1 = _drawdown_score(drawdown)
+    s2 = _rsi_score(rsi)
+    s3 = _ma_score(price, ma50, ma200)
+    s4 = _market_confidence(close)
 
-    score = W_DRAWDOWN * s_dd + W_MA * s_ma + W_RSI * s_rsi + W_CONF * s_conf
-    score = round(float(score), 1)
+    base_score = 0.35*s1 + 0.25*s2 + 0.2*s3 + 0.2*s4
+
+    boost = _conviction_boost(base_score, rsi, drawdown)
+
+    score = round(min(100, base_score + boost), 1)
+
     signal = classify(score)
 
     return {
         "ticker": ticker,
         "price": round(price, 2),
         "previous_price": round(prev, 2),
-        "change_percent": round((price - prev) / prev * 100, 2) if prev else 0,
-        "high_52w": round(high_52w, 2),
-        "drawdown_percent": round(drawdown_pct, 2),
-        "rsi": round(rsi_val, 2),
-        "ma50": round(ma50_val, 2) if ma50_val else None,
-        "ma200": round(ma200_val, 2) if ma200_val else None,
+        "change_percent": round((price-prev)/prev*100, 2),
+        "drawdown_percent": round(drawdown, 2),
+        "rsi": round(rsi, 2),
         "score": score,
         "signal_strength": signal,
+        "action": action(signal),
+        "confidence": round(score/100, 2),
         "recommendation": recommendation(signal, score),
-        "conclusion": conclusion(signal, score),
-        "reasons": build_reasons(price, drawdown_pct, rsi_val, ma50_val, ma200_val),
-        "components": {
-            "drawdown_score": round(s_dd, 1),
-            "ma_score": round(s_ma, 1),
-            "rsi_score": round(s_rsi, 1),
-            "confidence_score": round(s_conf, 1),
-        },
+        "reasons": build_reasons(price, drawdown, rsi, ma50, ma200),
     }
