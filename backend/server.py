@@ -187,7 +187,7 @@ async def recommended_action():
       - Picks NEVER include stocks with score < 60.
     Returns top 1-2 qualifying stocks.
     """
-    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE]
+    tasks = [_analyze_one(t) for t in MARKET_UNIVERSE[:8]]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     valid = [
         r for r in results
