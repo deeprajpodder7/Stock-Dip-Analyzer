@@ -129,7 +129,7 @@ async def discover(top: int = 12, include_weak: bool = False):
     valid = [r for r in results if isinstance(r, dict)]
     valid.sort(key=lambda x: x.get("score", 0), reverse=True)
 
-    strong = [r for r in valid if r.get("score", 0) >= 60]
+    strong = [r for r in valid if r.get("score", 0) >= 70]
 
     return {
         "results": valid,
@@ -159,8 +159,11 @@ async def recommended():
 
     top_score = picks[0].get("score", 0)
 
-    if top_score >= 70:
-        action = "Buy Now"
+    if top_score >= 80:
+        action = "Strong Buy"
+        tone = "strong"
+    elif top_score >= 70:
+        action = "Buy"
         tone = "strong"
     elif top_score >= 60:
         action = "Accumulate"
@@ -171,14 +174,7 @@ async def recommended():
             "action": "Wait",
             "message": "No strong signal",
             "tone": "weak"
-        }
-
-    return {
-        "picks": picks,
-        "action": action,
-        "message": "Opportunity detected",
-        "tone": tone
-    }
+            }
 
 
 # ---------------- INVESTMENT PLAN ----------------
@@ -236,7 +232,7 @@ async def stock_detail(ticker: str):
 
         analysis = analyze_dataframe(ticker, df)
 
-        history = df.tail(60).to_dict(orient="records")
+        history = df.attrs.get("chart", [])
 
         return {
             "analysis": analysis,
