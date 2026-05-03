@@ -125,32 +125,40 @@ async def _get_stale_cache(db, ticker: str) -> Optional[pd.DataFrame]:
 
 # ---------------- YFINANCE FETCH ----------------
 def _fetch_yf(ticker: str):
-    import yfinance as yf
+    import requests
     import pandas as pd
 
     try:
-        data = yf.download(
-            ticker,
-            period="6mo",
-            interval="1d",
-            progress=False,
-            threads=False,
-        )
+        symbol = ticker.replace(".NS", "")
 
-        # 🔴 DEBUG LOG
-        print(f"{ticker} rows fetched:", len(data))
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}.NS?range=6mo&interval=1d"
 
-        if data is None or data.empty:
-            print(f"❌ No data for {ticker}")
-            return None
+        res = requests.get(url, timeout=10)
+        data = res.json()
 
-        data.index = pd.to_datetime(data.index)
-        data.index.name = "Date"
+        result = data["chart"]["result"][0]
+        timestamps = result["timestamp"]
+        closes = result["indicators"]["quote"][0]["close"]
 
-        return data[["Open", "High", "Low", "Close", "Volume"]]
+        df = pd.DataFrame({
+            "Date": pd.to_datetime(timestamps, unit="s"),
+            "Close": closes,
+        })
+
+        df = df.dropna()
+        df = df.set_index("Date")
+
+        df["Open"] = df["Close"]
+        df["High"] = df["Close"]
+        df["Low"] = df["Close"]
+        df["Volume"] = 0
+
+        print(f"✅ API FETCH OK {ticker}")
+
+        return df
 
     except Exception as e:
-        print(f"❌ ERROR fetching {ticker}:", e)
+        print(f"❌ API FAIL {ticker}:", e)
         return None
 
 
