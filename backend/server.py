@@ -352,7 +352,9 @@ async def investment_plan(budget: int = 5000):
         }
 
     except Exception as e:
-        print("Investment plan error:", str(e))
+        import traceback
+        print("Investment plan error:")
+        traceback.print_exc()
         return {
             "budget": budget,
             "allocations": [],
