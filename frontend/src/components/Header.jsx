@@ -4,9 +4,6 @@ import { getStatus, sendTestNotification } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
-/**
- * Header with app title, status indicators (scheduler + ntfy), and test-notify button.
- */
 export const Header = ({ lastUpdated }) => {
   const [status, setStatus] = useState(null);
   const [sending, setSending] = useState(false);
@@ -14,9 +11,19 @@ export const Header = ({ lastUpdated }) => {
   const loadStatus = async () => {
     try {
       const s = await getStatus();
-      setStatus(s);
+
+      // 🛡️ SAFE DEFAULT
+      setStatus(
+        s || {
+          scheduler: { running: false },
+          notifier: { enabled: false },
+        }
+      );
     } catch {
-      setStatus(null);
+      setStatus({
+        scheduler: { running: false },
+        notifier: { enabled: false },
+      });
     }
   };
 
@@ -30,81 +37,91 @@ export const Header = ({ lastUpdated }) => {
     setSending(true);
     try {
       const r = await sendTestNotification();
-      if (r.ok) {
-        toast.success(`Test alert sent to ntfy.sh/${r.topic}`);
+
+      if (r?.ok) {
+        toast.success(`Test alert sent`);
       } else {
-        toast.error("Test notification failed (check ntfy topic)");
+        toast.error("Notification failed");
       }
-    } catch (e) {
-      toast.error("Test notification failed");
+    } catch {
+      toast.error("Notification failed");
     } finally {
       setSending(false);
     }
   };
 
-  const schedOk = status?.scheduler?.running;
-  const notifOk = status?.notifier?.enabled;
+  // 🛡️ SAFE VALUES
+  const schedOk = status?.scheduler?.running || false;
+  const notifOk = status?.notifier?.enabled || false;
+
+  const nextRun = status?.scheduler?.next_run;
+  const topic = status?.notifier?.topic;
+
+  const safeTime = lastUpdated
+    ? new Date(lastUpdated).toLocaleTimeString()
+    : null;
+
+  const nextRunText =
+    nextRun && !isNaN(new Date(nextRun))
+      ? new Date(nextRun).toLocaleString()
+      : "";
 
   return (
-    <header
-      data-testid="app-header"
-      className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur"
-    >
-      <div className="mx-auto max-w-7xl px-6 py-5 flex items-center justify-between gap-6">
+    <header className="sticky top-0 border-b bg-background/80 backdrop-blur">
+      <div className="mx-auto max-w-7xl px-6 py-5 flex justify-between">
+
+        {/* LEFT */}
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-md bg-primary text-primary-foreground flex items-center justify-center">
+          <div className="h-9 w-9 rounded-md bg-primary text-white flex items-center justify-center">
             <Radio className="h-5 w-5" />
           </div>
+
           <div>
-            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight" style={{ fontFamily: "Outfit" }}>
+            <h1 className="text-xl font-semibold">
               Stock Dip Analyzer
             </h1>
-            <p className="text-xs text-muted-foreground uppercase tracking-[0.2em]">
-              Long-term India · Signal quality first
+            <p className="text-xs text-muted-foreground">
+              Signal-based investing
             </p>
           </div>
         </div>
 
+        {/* RIGHT */}
         <div className="flex items-center gap-4">
-          <div
-            data-testid="status-scheduler"
-            className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground"
-            title={status?.scheduler?.next_run ? `Next run: ${new Date(status.scheduler.next_run).toLocaleString()}` : ""}
-          >
-            <Clock className="h-3.5 w-3.5" />
+
+          {/* Scheduler */}
+          <div title={nextRunText} className="flex items-center gap-2 text-xs">
+            <Clock className="h-4 w-4" />
             <span
-              className={`dot-pulse h-2 w-2 rounded-full ${schedOk ? "bg-emerald-500" : "bg-red-500"}`}
+              className={`h-2 w-2 rounded-full ${
+                schedOk ? "bg-green-500" : "bg-red-500"
+              }`}
             />
-            <span className="uppercase tracking-wider">Scheduler</span>
+            Scheduler
           </div>
 
-          <div
-            data-testid="status-notifier"
-            className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground"
-            title={status?.notifier?.topic ? `ntfy topic: ${status.notifier.topic}` : ""}
-          >
-            <Bell className="h-3.5 w-3.5" />
+          {/* Notifier */}
+          <div title={topic || ""} className="flex items-center gap-2 text-xs">
+            <Bell className="h-4 w-4" />
             <span
-              className={`dot-pulse h-2 w-2 rounded-full ${notifOk ? "bg-emerald-500" : "bg-red-500"}`}
+              className={`h-2 w-2 rounded-full ${
+                notifOk ? "bg-green-500" : "bg-red-500"
+              }`}
             />
-            <span className="uppercase tracking-wider">Ntfy</span>
+            Ntfy
           </div>
 
-          {lastUpdated && (
-            <div className="hidden md:block text-xs text-muted-foreground" data-testid="last-updated">
-              Updated {new Date(lastUpdated).toLocaleTimeString()}
+          {/* Last Updated */}
+          {safeTime && (
+            <div className="text-xs">
+              Updated {safeTime}
             </div>
           )}
 
-          <Button
-            data-testid="test-notification-button"
-            variant="outline"
-            size="sm"
-            onClick={testNotify}
-            disabled={sending}
-          >
-            <Bell className="mr-1.5 h-3.5 w-3.5" />
-            {sending ? "Sending…" : "Test Alert"}
+          {/* Button */}
+          <Button onClick={testNotify} disabled={sending}>
+            <Bell className="mr-1 h-4 w-4" />
+            {sending ? "Sending..." : "Test"}
           </Button>
         </div>
       </div>
