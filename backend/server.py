@@ -14,26 +14,34 @@ from scorer import analyze_dataframe
 # ---------------- Mongo ----------------
 mongo_url = os.environ.get("MONGO_URL")
 
-client = AsyncIOMotorClient(
-    mongo_url,
-    tls=True,
-    tlsAllowInvalidCertificates=True,
-    serverSelectionTimeoutMS=5000,
-)
+if mongo_url:
+    client = AsyncIOMotorClient(
+        mongo_url,
+        tls=True,
+        tlsAllowInvalidCertificates=True,
+        serverSelectionTimeoutMS=5000,
+    )
+else:
+    client = None
 
 db = None
 
 
 async def init_db():
     global db
+
+    if not client:
+        print("Mongo not configured ⚠️")
+        db = None
+        return
+
     try:
         await client.admin.command("ping")
         print("MongoDB connected ✅")
-        db = client[os.environ["DB_NAME"]]
+        db = client[os.environ.get("DB_NAME", "test")]
     except Exception as e:
         print("MongoDB failed ❌", e)
         db = None
-
 
 # ---------------- Helpers ----------------
 async def safe_gather(tasks):
@@ -94,7 +102,10 @@ async def status():
 # ---------------- WATCHLIST ----------------
 @api.get("/watchlist")
 async def watchlist():
-    return await get_watchlist_safe()
+    try:
+        return await get_watchlist_safe()
+    except Exception:
+        return [{"ticker": t, "is_default": True} for t in DEFAULT_TICKERS]
 
 
 # ---------------- ANALYZE ----------------
