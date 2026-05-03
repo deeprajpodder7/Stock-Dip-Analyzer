@@ -58,13 +58,21 @@ async def _analyze_one(ticker: str):
     try:
         df = await get_history(db, ticker)
 
-        if df is None or df.empty:
+        if df is None:
+            print(f"❌ NO DATA for {ticker}")
+            return {"ticker": ticker, "score": 0}
+
+        if df.empty:
             print(f"❌ EMPTY DF for {ticker}")
             return {"ticker": ticker, "score": 0}
 
-        print(f"✅ DATA OK for {ticker}", df.tail(2))
+        print(f"✅ DATA RECEIVED for {ticker}, rows:", len(df))
 
-        return analyze_dataframe(ticker, df)
+        result = analyze_dataframe(ticker, df)
+
+        print(f"📊 SCORE for {ticker}:", result.get("score"))
+
+        return result
 
     except Exception as e:
         print(f"❌ ANALYZE ERROR {ticker}:", e)
