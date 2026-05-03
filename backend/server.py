@@ -449,10 +449,10 @@ async def alerts_today():
 
 app.include_router(api)
 
-app.add_middleware(
+app.add_(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_origins=["*"],  # allow all
+    allow_credentials=False,  # IMPORTANT FIX
     allow_methods=["*"],
     allow_headers=["*"],
 )
