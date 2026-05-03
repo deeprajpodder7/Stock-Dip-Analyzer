@@ -14,8 +14,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from config import (
-    DEFAULT_TICKERS, MAX_CUSTOM_TICKERS, NTFY_TOPIC, NTFY_BASE,
-    , DISCOVER_TOP_N,
+    DEFAULT_TICKERS, MAX_CUSTOM_TICKERS, NTFY_TOPIC, NTFY_BASE, DISCOVER_TOP_N
 )
 from data import get_history, validate_ticker_symbol
 from scorer import analyze_dataframe
