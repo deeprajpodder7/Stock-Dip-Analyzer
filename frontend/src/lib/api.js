@@ -3,25 +3,67 @@ import axios from "axios";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 
-export const api = axios.create({ baseURL: API, timeout: 60000 });
+export const api = axios.create({
+  baseURL: API,
+  timeout: 120000, // increased timeout
+});
 
-export const getAnalyze = () => api.get("/analyze").then((r) => r.data);
+// helper wrapper (IMPORTANT)
+const safeCall = async (fn, fallback) => {
+  try {
+    const res = await fn();
+    return res.data;
+  } catch (err) {
+    console.error("API error:", err);
+    return fallback;
+  }
+};
+
+// APIs
+export const getAnalyze = () =>
+  safeCall(() => api.get("/analyze"), []);
+
 export const getDiscover = (top = 12, includeWeak = false) =>
-  api
-    .get("/discover", { params: { top, include_weak: includeWeak } })
-    .then((r) => r.data);
-export const getWatchlist = () => api.get("/watchlist").then((r) => r.data);
+  safeCall(
+    () =>
+      api.get("/discover", {
+        params: { top, include_weak: includeWeak },
+      }),
+    []
+  );
+
+export const getWatchlist = () =>
+  safeCall(() => api.get("/watchlist"), []);
+
 export const addTicker = (ticker) =>
-  api.post("/watchlist", { ticker }).then((r) => r.data);
+  safeCall(() => api.post("/watchlist", { ticker }), {});
+
 export const removeTicker = (ticker) =>
-  api.delete(`/watchlist/${encodeURIComponent(ticker)}`).then((r) => r.data);
-export const refreshAll = () => api.post("/refresh").then((r) => r.data);
+  safeCall(
+    () => api.delete(`/watchlist/${encodeURIComponent(ticker)}`),
+    {}
+  );
+
+export const refreshAll = () =>
+  safeCall(() => api.post("/refresh"), {});
+
 export const getInvestmentPlan = (budget = 5000) =>
-  api.get("/investment-plan", { params: { budget } }).then((r) => r.data);
+  safeCall(
+    () => api.get("/investment-plan", { params: { budget } }),
+    { allocations: [] }
+  );
+
 export const getRecommendedAction = () =>
-  api.get("/recommended-action").then((r) => r.data);
+  safeCall(() => api.get("/recommended-action"), {});
+
 export const getStockDetail = (ticker) =>
-  api.get(`/stock/${encodeURIComponent(ticker)}`).then((r) => r.data);
-export const getStatus = () => api.get("/status").then((r) => r.data);
+  safeCall(
+    () => api.get(`/stock/${encodeURIComponent(ticker)}`),
+    {}
+  );
+
+export const getStatus = () =>
+  safeCall(() => api.get("/status"), {});
+
 export const sendTestNotification = () =>
-  api.post("/test-notification").then((r) => r.data);
+  safeCall(() => api.post("/test-notification"), {});
