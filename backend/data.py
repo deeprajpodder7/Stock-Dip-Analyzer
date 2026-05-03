@@ -130,35 +130,54 @@ def _fetch_yf(ticker: str):
 
     try:
         symbol = ticker.replace(".NS", "")
-
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}.NS?range=6mo&interval=1d"
 
         res = requests.get(url, timeout=10)
+
+        if res.status_code != 200:
+            print(f"❌ HTTP ERROR {ticker}: {res.status_code}")
+            return None
+
         data = res.json()
 
+        # 🔥 CRITICAL SAFETY CHECK
+        if not data.get("chart") or not data["chart"].get("result"):
+            print(f"❌ NO RESULT DATA {ticker}")
+            print("RAW:", data)
+            return None
+
         result = data["chart"]["result"][0]
-        timestamps = result["timestamp"]
-        closes = result["indicators"]["quote"][0]["close"]
+
+        timestamps = result.get("timestamp")
+        quote = result.get("indicators", {}).get("quote", [{}])[0]
+
+        if not timestamps or not quote:
+            print(f"❌ INVALID STRUCTURE {ticker}")
+            return None
 
         df = pd.DataFrame({
             "Date": pd.to_datetime(timestamps, unit="s"),
-            "Close": closes,
+            "Open": quote.get("open"),
+            "High": quote.get("high"),
+            "Low": quote.get("low"),
+            "Close": quote.get("close"),
+            "Volume": quote.get("volume"),
         })
 
         df = df.dropna()
+
+        if df.empty:
+            print(f"❌ EMPTY DATAFRAME {ticker}")
+            return None
+
         df = df.set_index("Date")
 
-        df["Open"] = df["Close"]
-        df["High"] = df["Close"]
-        df["Low"] = df["Close"]
-        df["Volume"] = 0
-
-        print(f"✅ API FETCH OK {ticker}")
+        print(f"✅ SUCCESS {ticker} rows:", len(df))
 
         return df
 
     except Exception as e:
-        print(f"❌ API FAIL {ticker}:", e)
+        print(f"❌ FETCH ERROR {ticker}:", e)
         return None
 
 
