@@ -124,28 +124,34 @@ async def _get_stale_cache(db, ticker: str) -> Optional[pd.DataFrame]:
 
 
 # ---------------- YFINANCE FETCH ----------------
-def _fetch_yf(ticker: str) -> Optional[pd.DataFrame]:
-    last_err = None
+def _fetch_yf(ticker: str):
+    import yfinance as yf
+    import pandas as pd
 
-    for attempt in range(2):
-        try:
-            t = yf.Ticker(ticker)
-            hist = t.history(period="1y", interval="1d", auto_adjust=False)
+    try:
+        data = yf.download(
+            ticker,
+            period="6mo",
+            interval="1d",
+            progress=False,
+            threads=False,
+        )
 
-            if hist is None or hist.empty:
-                raise ValueError("empty history")
+        # 🔴 DEBUG LOG
+        print(f"{ticker} rows fetched:", len(data))
 
-            hist.index = pd.to_datetime(hist.index).tz_localize(None)
-            hist.index.name = "Date"
+        if data is None or data.empty:
+            print(f"❌ No data for {ticker}")
+            return None
 
-            return hist[["Open", "High", "Low", "Close", "Volume"]]
+        data.index = pd.to_datetime(data.index)
+        data.index.name = "Date"
 
-        except Exception as e:
-            last_err = e
-            logger.warning(f"yfinance attempt {attempt+1} failed ({ticker}): {e}")
+        return data[["Open", "High", "Low", "Close", "Volume"]]
 
-    logger.error(f"yfinance failed ({ticker}): {last_err}")
-    return None
+    except Exception as e:
+        print(f"❌ ERROR fetching {ticker}:", e)
+        return None
 
 
 # ---------------- MAIN FUNCTION ----------------
