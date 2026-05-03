@@ -185,7 +185,7 @@ def _fetch_yf(ticker: str):
 async def get_history(db, ticker: str) -> Optional[pd.DataFrame]:
     """Return 1-year history with indicators + chart-ready data"""
 
-    cached = await _get_cached(db, ticker)
+    cached = None  # 🚨 force fresh fetch
 
     if cached is not None and not cached.empty:
         df = cached
